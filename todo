@@ -1,0 +1,4 @@
+- figure out a way to get an mqtt message to the outside world (NOT via VPN) maybe using router MQTT broker
+- rebuild RUT955 with OS 7 (7.6.21)
+- why no internet access from sing when attached via ethernet to router?
+- why no internet access for android wifi device?

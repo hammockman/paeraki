@@ -12,8 +12,8 @@ def merge_list_of_dicts(ld):
     return out
 
 async def main():
-    async with aiomqtt.Client("localhost") as mqtt_client:
-        client = EnhancedModbusClient(slave_address=0xFF) 
+    async with aiomqtt.Client("192.168.1.1") as mqtt_client:
+        client = EnhancedModbusClient(slave_address=0xFF)
         connected = False
         choices = ["battery","controller"]
         try:
@@ -29,11 +29,12 @@ async def main():
                     all = merge_list_of_dicts(data) | merge_list_of_dicts(status)
                     #print(all)
                     for k, v in all.items():
+                        #print(f"{k}: {v}")
                         await mqtt_client.publish(f"12v/{k}", payload=v)
 
 
 
-                    
+
         except Exception as e:
             print(f"catch exception:{str(e)}")
         finally:

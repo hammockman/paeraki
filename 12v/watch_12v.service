@@ -1,0 +1,11 @@
+[Unit]
+Description=Monitor 12v system
+After=multi-user.target
+
+[Service]
+ExecStart=/home/jh/.local/bin/uv run /home/jh/paeraki/12v/watch.py
+Restart=always
+User=jh
+
+[Install]
+WantedBy=multi-user.target
