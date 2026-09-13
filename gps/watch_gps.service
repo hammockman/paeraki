@@ -1,0 +1,13 @@
+[Unit]
+Description=Paeraki GPS & Navigation Telemetry Collector
+After=network.target
+
+[Service]
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/gps/watch.py --broker 192.168.1.1 --port 8500 --interval 1.0
+Restart=always
+RestartSec=5
+User=jh
+
+[Install]
+WantedBy=multi-user.target

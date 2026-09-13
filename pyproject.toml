@@ -1,0 +1,20 @@
+[project]
+name = "paeraki"
+version = "0.1.0"
+description = "Ship computer and telemetry monitoring for yacht Paeraki"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiomqtt>=2.0.0",
+    "paho-mqtt>=2.0.0",
+    "bleak>=0.21.0",
+    "pyserial>=3.5",
+    "renogy-modbus-lib-python>=0.1.10",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "websockets>=12.0",
+    "rich>=13.0.0",
+]
+
+[tool.uv]
+package = false

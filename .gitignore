@@ -60,6 +60,18 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+*.db
+*.db-wal
+*.db-shm
+data/*.db*
+data/
+node_modules/
+.gradle/
+android/app/build/
+android/.gradle/
+dist/
+dist_app/
+
 
 # Flask stuff:
 instance/

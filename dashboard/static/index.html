@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Paeraki • Vessel Telemetry Monitor</title>
+  <meta name="theme-color" content="#070a12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" type="image/png" href="/static/icon-192.png">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <div class="vessel-brand">
+        <div class="vessel-logo">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 20a2.4 2.4 0 0 0 2 1 2.4 2.4 0 0 0 2-1 2.4 2.4 0 0 1 2-1 2.4 2.4 0 0 1 2 1 2.4 2.4 0 0 0 2 1 2.4 2.4 0 0 0 2-1 2.4 2.4 0 0 1 2-1 2.4 2.4 0 0 1 2 1 2.4 2.4 0 0 0 2 1 2.4 2.4 0 0 0 2-1"></path>
+            <path d="M4 18 3 13h18l-1 5"></path>
+            <path d="m12 2 4 9H8l4-9z"></path>
+          </svg>
+        </div>
+        <div class="vessel-titles">
+          <h1 class="vessel-name">PAERAKI</h1>
+          <span class="vessel-sub">Vessel Telemetry</span>
+        </div>
+      </div>
+
+      <!-- Compact Status Dot -->
+      <div class="status-indicator top-status">
+        <span class="pulse-dot" id="conn-dot"></span>
+        <span class="conn-text" id="conn-label">Connecting...</span>
+      </div>
+
+      <!-- Desktop Broker Meta (hidden on narrow mobile screens) -->
+      <div class="broker-meta desktop-only" id="broker-status-card">
+        <div class="meta-item">
+          <span class="meta-label">BROKER</span>
+          <span class="meta-val" id="broker-endpoint">192.168.1.1:1883</span>
+        </div>
+        <div class="meta-divider"></div>
+        <div class="meta-item">
+          <span class="meta-label">PACKETS</span>
+          <span class="meta-val mono" id="total-packets">0</span>
+        </div>
+        <div class="meta-divider"></div>
+        <div class="meta-item">
+          <span class="meta-label">RATE</span>
+          <span class="meta-val mono" id="packet-rate">0.0 /s</span>
+        </div>
+        <div class="meta-divider"></div>
+        <div class="meta-item">
+          <span class="meta-label">UPDATED</span>
+          <span class="meta-val mono" id="last-seen">--</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Tab Panels Container -->
+    <main class="panels-container">
+      
+      <!-- ================= TAB 1: 72V PROPULSION ================= -->
+      <section class="tab-panel active" id="tab-panel-72v">
+        <div class="card panel-card">
+          <!-- Card Header: Title + SINGLE Idle Badge -->
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge cyan-badge">PROPULSION</span>
+              <h2 title="JBD Smart BMS (20S Li-ion)">72V Propulsion</h2>
+            </div>
+            <div class="card-badge green-badge" id="bms-state-badge">IDLE</div>
+          </div>
+
+          <!-- Hero Metrics: Gauge + Power Readouts -->
+          <div class="hero-metric-row">
+            <!-- SoC Ring Gauge (Tap to cycle mode) -->
+            <div class="gauge-container interactive-gauge" id="soc-gauge-container" title="Tap to switch SoC estimation mode">
+              <svg class="gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-bg" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-fill" id="soc-gauge-fill" cx="60" cy="60" r="50"></circle>
+              </svg>
+              <div class="gauge-center">
+                <span class="gauge-value" id="val-72v-soc">--</span>
+                <span class="gauge-unit">% SoC</span>
+                <span class="gauge-sublabel" id="val-72v-soc-mode">INTEGRATED</span>
+              </div>
+            </div>
+
+            <!-- Primary Power Readouts -->
+            <div class="readout-block">
+              <div class="stat-unit">
+                <span class="stat-label">PACK VOLTAGE</span>
+                <div class="stat-value-group">
+                  <span class="stat-hero mono" id="val-72v-voltage">--.-</span>
+                  <span class="stat-unit-label">V</span>
+                </div>
+              </div>
+              <div class="stat-unit">
+                <span class="stat-label">CURRENT</span>
+                <div class="stat-value-group">
+                  <span class="stat-hero mono" id="val-72v-current">--.-</span>
+                  <span class="stat-unit-label">A</span>
+                </div>
+              </div>
+              <div class="stat-unit">
+                <span class="stat-label">POWER</span>
+                <div class="stat-value-group">
+                  <span class="stat-hero mono" id="val-72v-power">--</span>
+                  <span class="stat-unit-label">W</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SoC Mode Switcher Pills -->
+          <div class="soc-mode-bar" aria-label="Select SoC Estimation Mode">
+            <button class="soc-mode-pill active" id="pill-mode-integrated" data-mode="integrated" title="Coulomb counting integrated from current shunt">
+              <span class="soc-pill-type">Integrated</span>
+              <span class="soc-pill-pct mono" id="pill-val-integrated">--%</span>
+              <span class="soc-pill-sub mono" id="pill-sub-integrated">-- Ah</span>
+            </button>
+            <button class="soc-mode-pill" id="pill-mode-voltage" data-mode="voltage" title="Voltage Open-Circuit curve (20S OCV)">
+              <span class="soc-pill-type">Voltage</span>
+              <span class="soc-pill-pct mono" id="pill-val-voltage">--%</span>
+              <span class="soc-pill-sub mono" id="pill-sub-voltage">--.- V</span>
+            </button>
+            <button class="soc-mode-pill" id="pill-mode-bms" data-mode="bms" title="Hardware JBD BMS coulomb register">
+              <span class="soc-pill-type">BMS</span>
+              <span class="soc-pill-pct mono" id="pill-val-bms">--%</span>
+              <span class="soc-pill-sub mono" id="pill-sub-bms">-- Ah</span>
+            </button>
+          </div>
+
+          <!-- Cell Balance (20S Adjacent Vertical Bars) -->
+          <div class="cell-spectrum-section">
+            <div class="spectrum-header">
+              <span class="spectrum-title">Cell Balance (<span id="cell-count-label">20S</span>)</span>
+              <div class="cell-stats">
+                <span class="cell-stat-item">Min: <strong class="mono" id="cell-min">-.---V</strong></span>
+                <span class="cell-stat-item">Max: <strong class="mono" id="cell-max">-.---V</strong></span>
+                <span class="cell-stat-item">Δ: <strong class="mono" id="cell-delta">-- mV</strong></span>
+              </div>
+            </div>
+            <!-- Adjacent Bars without individual voltage text labels -->
+            <div class="cell-bars-container" id="cell-bars-container">
+              <div class="cell-bar-placeholder">Waiting for cell telemetry...</div>
+            </div>
+          </div>
+
+          <!-- Secondary Pack Details -->
+          <div class="metrics-subgrid compact-subgrid">
+            <div class="submetric">
+              <span class="submetric-label">Residual Capacity</span>
+              <span class="submetric-val mono" id="val-72v-capacity">-- / -- Ah</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Cycle Count</span>
+              <span class="submetric-val mono" id="val-72v-cycles">--</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Temperatures</span>
+              <span class="submetric-val mono" id="val-72v-temps">--</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">MOSFET Switches</span>
+              <div class="mos-status-pills">
+                <span class="pill" id="pill-chg-mos">CHG: --</span>
+                <span class="pill" id="pill-dsg-mos">DSG: --</span>
+              </div>
+            </div>
+            <div class="submetric" id="submetric-charger">
+              <span class="submetric-label" title="BF Tech Hexapower 72V 20A Charger">Shore Charger</span>
+              <span class="submetric-val mono" id="val-charger-status">OFFLINE</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 2: 12V HOUSE & SOLAR ================= -->
+      <section class="tab-panel" id="tab-panel-12v">
+        <div class="card panel-card">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge amber-badge">HOUSE & SOLAR</span>
+              <h2 title="Renogy / SRNE MPPT Controller">12V House & Solar</h2>
+            </div>
+            <div class="card-badge green-badge" id="solar-mode-badge">MONITORING</div>
+          </div>
+
+          <!-- Hero Metrics: House Battery & Solar Generation -->
+          <div class="hero-metric-row">
+            <!-- House Battery Block -->
+            <div class="solar-hero-block">
+              <span class="stat-label">HOUSE BATTERY</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono" id="val-12v-batt-v">--.-</span>
+                <span class="stat-unit-label">V</span>
+              </div>
+              <div class="mini-progress-bar">
+                <div class="mini-progress-fill" id="fill-12v-soc" style="width: 0%;"></div>
+              </div>
+              <span class="mini-progress-sub" id="val-12v-batt-soc">Capacity: --%</span>
+            </div>
+
+            <!-- Solar PV Generation Block -->
+            <div class="solar-hero-block">
+              <span class="stat-label">SOLAR GENERATION</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono glow-amber" id="val-12v-solar-w">--</span>
+                <span class="stat-unit-label">W</span>
+              </div>
+              <div class="solar-sub-stats">
+                <span>PV: <strong class="mono" id="val-12v-solar-v">--.-V</strong></span>
+                <span>Current: <strong class="mono" id="val-12v-solar-a">--.-A</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Solar System Metrics -->
+          <div class="metrics-subgrid">
+            <div class="submetric">
+              <span class="submetric-label">Controller State</span>
+              <span class="submetric-val" id="val-12v-state">Active</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Daily Yield</span>
+              <span class="submetric-val mono" id="val-12v-yield">-- kWh</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Controller Temp</span>
+              <span class="submetric-val mono" id="val-12v-temp">-- °C</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">DC Load Output</span>
+              <span class="submetric-val mono" id="val-12v-load">-- A (0 W)</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 3: GPS NAVIGATION ================= -->
+      <section class="tab-panel" id="tab-panel-gps">
+        <div class="card panel-card">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge teal-badge">NAVIGATION</span>
+              <h2 title="Teltonika RUT955 GPS">GPS Navigation</h2>
+            </div>
+            <div class="card-badge" id="val-gps-fix-badge">NO FIX</div>
+          </div>
+
+          <!-- Nautical Speed and Heading -->
+          <div class="hero-metric-row">
+            <!-- SOG Block -->
+            <div class="gps-hero-block">
+              <span class="stat-label">SPEED OVER GROUND</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono glow-teal" id="val-gps-sog-knots">--.-</span>
+                <span class="stat-unit-label">KTS</span>
+              </div>
+              <div class="gps-sub-stats">
+                <span><strong class="mono" id="val-gps-sog-kmh">--.- km/h</strong></span>
+                <span><strong class="mono" id="val-gps-sog-ms">--.- m/s</strong></span>
+              </div>
+            </div>
+
+            <!-- COG Block -->
+            <div class="gps-hero-block">
+              <span class="stat-label">COURSE OVER GROUND</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono" id="val-gps-cog">---°</span>
+                <span class="stat-unit-label">TRUE</span>
+              </div>
+              <div class="gps-sub-stats">
+                <span>Heading: <strong class="mono" id="val-gps-heading-cardinal">--</strong></span>
+                <span>Mode: <strong class="mono" id="val-gps-mode">GNSS</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Vessel Coordinates -->
+          <div class="gps-coords-card">
+            <span class="stat-label">CURRENT POSITION</span>
+            <div class="coords-display">
+              <div class="coord-line">
+                <span class="coord-label">LAT</span>
+                <span class="coord-val mono" id="val-gps-lat-nautical">--° --.---' -</span>
+              </div>
+              <div class="coord-line">
+                <span class="coord-label">LON</span>
+                <span class="coord-val mono" id="val-gps-lon-nautical">---° --.---' -</span>
+              </div>
+            </div>
+            <div class="coords-decimal mono" id="val-gps-coords-dec">--.------, ---.------</div>
+          </div>
+
+          <!-- GNSS Precision & Fix -->
+          <div class="metrics-subgrid">
+            <div class="submetric">
+              <span class="submetric-label">Fix Quality</span>
+              <span class="submetric-val" id="val-gps-quality">Searching</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Satellites Tracked</span>
+              <span class="submetric-val mono" id="val-gps-sats">-- sats</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Precision (HDOP)</span>
+              <span class="submetric-val mono" id="val-gps-hdop">--.-</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Altitude</span>
+              <span class="submetric-val mono" id="val-gps-altitude">--.- m</span>
+            </div>
+          </div>
+
+          <!-- Map Link Action -->
+          <div class="gps-map-action">
+            <a href="#" id="link-gps-map" target="_blank" rel="noopener noreferrer" class="map-link-btn disabled">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+              View on OpenStreetMap
+            </a>
+            <span class="last-sentence-badge mono" id="val-gps-sentence">NMEA: --</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 4: MISC & DIAGNOSTICS ================= -->
+      <section class="tab-panel" id="tab-panel-misc">
+        <div class="card panel-card">
+          <!-- Diagnostics & Endpoints -->
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge purple-badge">SYSTEM & DIAGNOSTICS</span>
+              <h2>Broker & Server Status</h2>
+            </div>
+          </div>
+
+          <div class="misc-stats-grid">
+            <div class="submetric">
+              <span class="submetric-label">Vessel Broker</span>
+              <span class="submetric-val mono" id="broker-host">192.168.1.1:1883</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Dashboard Server</span>
+              <span class="submetric-val mono clickable-host" id="server-host" title="Tap to change server address">sing</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Total Packets</span>
+              <span class="submetric-val mono" id="misc-total-packets">--</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Packet Rate</span>
+              <span class="submetric-val mono" id="misc-packet-rate">--</span>
+            </div>
+          </div>
+
+          <!-- SoC Calibration Tool -->
+          <div class="soc-comparison-container">
+            <div class="soc-comparison-header">
+              <span class="soc-comp-title">STATE OF CHARGE CALIBRATION</span>
+              <div class="soc-comp-actions">
+                <button class="soc-sync-btn" id="btn-sync-soc" title="Align Integrated Coulomb Counter to Voltage OCV estimate">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                  Sync to Voltage SoC
+                </button>
+              </div>
+            </div>
+
+            <div class="soc-methods-grid">
+              <div class="soc-method-card active" id="card-soc-integrated" data-mode="integrated" title="Integrated Coulomb counter">
+                <div class="soc-card-top">
+                  <span class="soc-method-name">INTEGRATED</span>
+                  <span class="soc-active-pill">ACTIVE</span>
+                </div>
+                <div class="soc-card-val-row">
+                  <span class="soc-big-val mono" id="val-soc-integrated">--%</span>
+                </div>
+                <div class="soc-card-sub mono" id="val-soc-integrated-sub">-- / -- Ah</div>
+              </div>
+
+              <div class="soc-method-card" id="card-soc-voltage" data-mode="voltage" title="Open-circuit voltage curve (20S OCV)">
+                <div class="soc-card-top">
+                  <span class="soc-method-name">VOLTAGE</span>
+                  <span class="soc-badge-pill">OCV</span>
+                </div>
+                <div class="soc-card-val-row">
+                  <span class="soc-big-val mono" id="val-soc-voltage">--%</span>
+                </div>
+                <div class="soc-card-sub mono" id="val-soc-voltage-sub">--.- V &bull; -.--- V/c</div>
+              </div>
+
+              <div class="soc-method-card" id="card-soc-bms" data-mode="bms" title="Hardware BMS register">
+                <div class="soc-card-top">
+                  <span class="soc-method-name">BMS</span>
+                  <span class="soc-badge-pill" id="badge-bms-status">HARDWARE</span>
+                </div>
+                <div class="soc-card-val-row">
+                  <span class="soc-big-val mono" id="val-soc-bms">--%</span>
+                </div>
+                <div class="soc-card-sub mono" id="val-soc-bms-sub">-- / -- Ah</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Raw 12V Register Feed -->
+          <div class="register-explorer">
+            <span class="explorer-title">Live 12V Register Feed</span>
+            <div class="register-chips-container" id="register-chips">
+              <span class="chip-placeholder">Awaiting 12V MQTT updates...</span>
+            </div>
+          </div>
+
+          <!-- Live MQTT Stream Inspector -->
+          <div class="mqtt-inspector-section">
+            <div class="inspector-header">
+              <span class="explorer-title">Live MQTT Feed (Topic: #)</span>
+              <div class="log-controls">
+                <div class="filter-group">
+                  <button class="filter-btn active" id="btn-filter-all" data-filter="all">All</button>
+                  <button class="filter-btn" id="btn-filter-72v" data-filter="72v">72V</button>
+                  <button class="filter-btn" id="btn-filter-12v" data-filter="12v">12V</button>
+                  <button class="filter-btn" id="btn-filter-gps" data-filter="gps">GPS</button>
+                  <button class="filter-btn" id="btn-filter-raw" data-filter="other">Other</button>
+                </div>
+                <button class="action-btn" id="btn-pause-log">Pause</button>
+                <button class="action-btn" id="btn-clear-log">Clear</button>
+              </div>
+            </div>
+
+            <div class="log-table-wrapper">
+              <table class="log-table" id="mqtt-log-table">
+                <thead>
+                  <tr>
+                    <th style="width: 85px;">Time</th>
+                    <th style="width: 150px;">Topic</th>
+                    <th>Payload</th>
+                    <th style="width: 60px; text-align: right;">Src</th>
+                  </tr>
+                </thead>
+                <tbody id="log-rows-container">
+                  <tr class="empty-row">
+                    <td colspan="4">Connecting to live MQTT feed...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- App Actions & Download -->
+          <div class="misc-actions-row">
+            <a href="/download" class="footer-link-btn" title="Download native Android APK">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download Android App (APK)
+            </a>
+            <button id="btn-pwa-install" class="footer-link-btn" style="display: none;" title="Install Progressive Web App">
+              Install PWA
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Navigation Bar (Fixed on Mobile) -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="nav-tab active" data-tab="72v" id="btn-tab-72v" aria-label="72V Propulsion">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+        <span>72V</span>
+      </button>
+      <button class="nav-tab" data-tab="12v" id="btn-tab-12v" aria-label="12V House and Solar">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2"></path><path d="M12 20v2"></path>
+          <path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path>
+          <path d="M2 12h2"></path><path d="M20 12h2"></path>
+          <path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>
+        </svg>
+        <span>12V</span>
+      </button>
+      <button class="nav-tab" data-tab="gps" id="btn-tab-gps" aria-label="GPS Navigation">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+        </svg>
+        <span>GPS</span>
+      </button>
+      <button class="nav-tab" data-tab="misc" id="btn-tab-misc" aria-label="Misc Diagnostics and Logs">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line>
+          <line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line>
+          <line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line>
+          <line x1="17" y1="16" x2="23" y2="16"></line>
+        </svg>
+        <span>Misc</span>
+      </button>
+    </nav>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

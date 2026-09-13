@@ -1,0 +1,17 @@
+[Unit]
+Description=Paeraki 72V BF Tech Charger Telemetry Poller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jh
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/home/jh/paeraki/.venv/bin/python /home/jh/paeraki/charger/watch.py --url http://192.168.4.1 --broker 192.168.1.1 --interval 2.0
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

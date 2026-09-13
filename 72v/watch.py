@@ -1,91 +1,297 @@
-# jh@sing:~/paeraki/72v $ python service_explorer.py --address A4:C1:37:14:70:77
-# 2026-02-25 08:55:55,278 __main__ INFO: starting scan...
-# 2026-02-25 08:55:56,306 __main__ INFO: connecting to device...
-# 2026-02-25 08:56:00,369 __main__ INFO: connected to  (A4:C1:37:14:70:77)
+#!/usr/bin/env python3
+"""
+72V JBD BMS Telemetry Collector for yacht Paeraki.
+Connects to JBD BMS over BLE, polls metrics, and publishes to MQTT.
+"""
 
-# 2026-02-25 08:56:00,369 __main__ INFO: [Service] 00001801-0000-1000-8000-00805f9b34fb (Handle: 8): Generic Attribute Profile
-# 2026-02-25 08:56:00,370 __main__ INFO:   [Characteristic] 00002a05-0000-1000-8000-00805f9b34fb (Handle: 9): Service Changed (indicate)
-# 2026-02-25 08:56:00,370 __main__ ERROR:     [Descriptor] 00002902-0000-1000-8000-00805f9b34fb (Handle: 11): Client Characteristic Configuration, Error: Descriptor with handle 00002902-0000-1000-8000-00805f9b34fb (Handle: 11): Client Characteristic Configuration was not found!
-
-# 2026-02-25 08:56:00,370 __main__ INFO: [Service] 0000180a-0000-1000-8000-00805f9b34fb (Handle: 12): Device Information
-# 2026-02-25 08:56:00,810 __main__ INFO:   [Characteristic] 00002a50-0000-1000-8000-00805f9b34fb (Handle: 13): PnP ID (read), Value: bytearray(b'\x02\x8a$f\x82\x01\x00')
-
-# 2026-02-25 08:56:00,811 __main__ INFO: [Service] 0000ff00-0000-1000-8000-00805f9b34fb (Handle: 15): Vendor specific
-# 2026-02-25 08:56:00,886 __main__ INFO:   [Characteristic] 0000ff02-0000-1000-8000-00805f9b34fb (Handle: 20): Vendor specific (read,write-without-response), Value: bytearray(b'\xdd\xa5\xfa\x03\x00\x1d\x01\xfe\xe5w\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'), Max write w/o rsp size: 20
-# 2026-02-25 08:56:00,886 __main__ ERROR:     [Descriptor] 00002901-0000-1000-8000-00805f9b34fb (Handle: 22): Characteristic User Description, Error: Descriptor with handle 00002901-0000-1000-8000-00805f9b34fb (Handle: 22): Characteristic User Description was not found!
-# 2026-02-25 08:56:01,036 __main__ INFO:   [Characteristic] 0000ff01-0000-1000-8000-00805f9b34fb (Handle: 16): Vendor specific (read,notify), Value: bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-# 2026-02-25 08:56:01,036 __main__ ERROR:     [Descriptor] 00002901-0000-1000-8000-00805f9b34fb (Handle: 19): Characteristic User Description, Error: Descriptor with handle 00002901-0000-1000-8000-00805f9b34fb (Handle: 19): Characteristic User Description was not found!
-# 2026-02-25 08:56:01,036 __main__ ERROR:     [Descriptor] 00002902-0000-1000-8000-00805f9b34fb (Handle: 18): Client Characteristic Configuration, Error: Descriptor with handle 00002902-0000-1000-8000-00805f9b34fb (Handle: 18): Client Characteristic Configuration was not found!
-
-# 2026-02-25 08:56:01,036 __main__ INFO: [Service] 0000fa00-0000-1000-8000-00805f9b34fb (Handle: 23): Vendor specific
-# 2026-02-25 08:56:01,148 __main__ INFO:   [Characteristic] 0000fa01-0000-1000-8000-00805f9b34fb (Handle: 24): Vendor specific (read,write-without-response,notify), Value: bytearray(b'\x00'), Max write w/o rsp size: 20
-# 2026-02-25 08:56:01,148 __main__ ERROR:     [Descriptor] 00002901-0000-1000-8000-00805f9b34fb (Handle: 26): Characteristic User Description, Error: Descriptor with handle 00002901-0000-1000-8000-00805f9b34fb (Handle: 26): Characteristic User Description was not found!
-# 2026-02-25 08:56:01,148 __main__ ERROR:     [Descriptor] 11120010-fa01-0019-1600-290100132901 (Handle: 27): Unknown, Error: Descriptor with handle 11120010-fa01-0019-1600-290100132901 (Handle: 27): Unknown was not found!
-# 2026-02-25 08:56:01,148 __main__ INFO: disconnecting...
-# 2026-02-25 08:56:03,737 __main__ INFO: disconnected
-
-
-#Bluetooth UUID
-#SERVICE UUID: 0000ff00-0000-1000-8000-00805f9b34fb
-#write characteristic UUID: 0000ff02-0000-1000-8000-00805f9b34fb
-#read characteristic UUID:
-
-
+import argparse
 import asyncio
-import aiomqtt
-import paho.mqtt.client as mqtt
-import time
-from bleak import BleakClient
+import json
+import logging
+import random
+import signal
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Support running directly or as module
+sys.path.insert(0, str(Path(__file__).parent))
+from jbdbms import (
+    BASIC_INFO_QUERY,
+    CELL_VOLTAGES_QUERY,
+    debug_query,
+    parse_basic_info,
+    parse_cell_voltages,
+    validate_response,
+)
+
+try:
+    import aiomqtt
+except ImportError:
+    aiomqtt = None
+
+try:
+    from bleak import BleakClient, BleakScanner
+    from bleak.exc import BleakError
+except ImportError:
+    BleakClient = None
+    BleakScanner = None
+    BleakError = Exception
+
+UUID_SERVICE = "0000ff00-0000-1000-8000-00805f9b34fb"
+UUID_WRITE = "0000ff02-0000-1000-8000-00805f9b34fb"
+UUID_NOTIFY = "0000ff01-0000-1000-8000-00805f9b34fb"
+
+logger = logging.getLogger("paeraki.72v")
 
 
+class JBDBleClient:
+    def __init__(self, address: str):
+        self.address = address
+        self.client: BleakClient | None = None
+        self._rx_buffer = bytearray()
+        self._rx_event = asyncio.Event()
+        self._lock = asyncio.Lock()
 
-def parse_response(sender, data):
-    print('***', data.decode())
+    def _notification_handler(self, sender, data: bytearray):
+        logger.debug("RX chunk (%d bytes): %s", len(data), data.hex())
+        self._rx_buffer.extend(data)
+
+        # Look for start byte 0xDD
+        start_idx = self._rx_buffer.find(b"\xdd")
+        if start_idx == -1:
+            self._rx_buffer.clear()
+            return
+        elif start_idx > 0:
+            del self._rx_buffer[:start_idx]
+
+        if len(self._rx_buffer) >= 4:
+            payload_len = self._rx_buffer[3]
+            expected_total_len = payload_len + 7
+            if len(self._rx_buffer) >= expected_total_len:
+                logger.debug("Frame complete (%d bytes)", expected_total_len)
+                self._rx_event.set()
+
+    async def connect(self, timeout: float = 15.0):
+        logger.info("Connecting to JBD BMS at %s...", self.address)
+        self.client = BleakClient(self.address, timeout=timeout)
+        await self.client.connect()
+        logger.info("Connected to JBD BMS (%s)", self.address)
+        await self.client.start_notify(UUID_NOTIFY, self._notification_handler)
+        await asyncio.sleep(0.2)
+
+        # Send JBD BLE App Key handshake (required by JBD BMS firmware)
+        logger.debug("Sending JBD BLE App Key handshake...")
+        app_key_frame = bytes([0xFF, 0xAA, 0x15, 0x06, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3B])
+        await self.client.write_gatt_char(UUID_WRITE, app_key_frame, response=False)
+        await asyncio.sleep(0.3)
+
+    async def disconnect(self):
+        if self.client and self.client.is_connected:
+            try:
+                await self.client.stop_notify(UUID_NOTIFY)
+            except Exception:
+                pass
+            try:
+                await self.client.disconnect()
+            except Exception:
+                pass
+            logger.info("Disconnected from JBD BMS")
+        self.client = None
+
+    async def query(self, query_cmd: bytes, timeout: float = 4.0) -> bytes:
+        if not self.client or not self.client.is_connected:
+            raise ConnectionError("BLE client not connected")
+
+        async with self._lock:
+            self._rx_buffer.clear()
+            self._rx_event.clear()
+
+            logger.debug("TX query: %s", query_cmd.hex())
+            await self.client.write_gatt_char(UUID_WRITE, query_cmd, response=False)
+
+            try:
+                await asyncio.wait_for(self._rx_event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Timeout waiting for BMS response to query {query_cmd.hex()} (received {len(self._rx_buffer)} bytes)"
+                )
+
+            payload_len = self._rx_buffer[3]
+            total_len = payload_len + 7
+            response = bytes(self._rx_buffer[:total_len])
+            del self._rx_buffer[:total_len]
+
+            validate_response(query_cmd, response)
+            return response
+
+    async def read_telemetry(self) -> dict:
+        basic_bytes = await self.query(BASIC_INFO_QUERY)
+        basic_info = parse_basic_info(basic_bytes)
+
+        # Apply deadband filter to eliminate idle ADC shunt noise (< 50mA)
+        if abs(basic_info.get("current", 0.0)) < 0.05:
+            basic_info["current"] = 0.0
+            basic_info["power"] = 0.0
+
+        await asyncio.sleep(0.1)
+
+        cell_bytes = await self.query(CELL_VOLTAGES_QUERY)
+        cell_voltages = parse_cell_voltages(cell_bytes)
+
+        telemetry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **basic_info,
+            "cell_voltages": cell_voltages,
+        }
+        return telemetry
 
 
-async def get_jbd_bms_registers(addr):
-    cuid_write = "0000ff02-0000-1000-8000-00805f9b34fb"
-    cuid_read = "0000ff01-0000-1000-8000-00805f9b34fb"
+def get_mock_telemetry() -> dict:
+    """Generates synthetic telemetry matching Paeraki's actual 20S pack profile at rest."""
+    mock_cells = [round(4.165 + random.uniform(-0.003, 0.003), 3) for _ in range(20)]
+    mock_voltage = round(sum(mock_cells), 2)
+    mock_current = 0.00
+    mock_power = 0.00
 
-    async with BleakClient(addr) as client:
-        #if client.is_connected:
-        print(f"Connected: {client.is_connected}")
-        await client.start_notify(cuid_read, parse_response)
-        await asyncio.sleep(1)
-        await client.write_gatt_char(cuid_write, b'\xdd\xa5\x03\x00\xff\xfd\x77', response=False)
-
-        while True:
-            print(await client.read_gatt_char(cuid_read))
-
-
-        #else:
-        #print("failed to connect")
-        #res = await client.read_gatt_char(cuid_read)
-        #print(res)
-
-
-        # Keep the connection alive to receive notifications (adjust as needed)
-        await asyncio.sleep(60)
-
-        # Stop notifications before disconnecting
-        await client.stop_notify(cuid_read)
-
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "total_voltage": mock_voltage,
+        "current": mock_current,
+        "power": mock_power,
+        "residual_capacity_ah": 150.0,
+        "nominal_capacity_ah": 200.0,
+        "cycle_times": 2,
+        "rsoc": 100,
+        "charge_status": True,
+        "discharge_status": True,
+        "temperatures": [19.0, 12.2, 5.9],
+        "active_protection_states": [],
+        "balance_states": [False] * 20,
+        "number_of_cells": 20,
+        "manufacturing_date": "2024-04-18",
+        "cell_voltages": mock_cells,
+    }
 
 
-    return {}
+async def publish_telemetry(mqtt_client, telemetry: dict):
+    """Publishes both consolidated JSON payload and individual metrics."""
+    # Consolidated topic
+    await mqtt_client.publish("paeraki/72v/state", payload=json.dumps(telemetry))
+
+    # Individual topics matching legacy/12v style
+    for key, value in telemetry.items():
+        if isinstance(value, (dict, list)):
+            payload = json.dumps(value)
+        else:
+            payload = str(value)
+        await mqtt_client.publish(f"72v/{key}", payload=payload)
 
 
 async def main():
-    async with aiomqtt.Client("192.168.1.1") as mqtt_client:
-        while True:
+    parser = argparse.ArgumentParser(description="72V JBD BMS Telemetry Collector for yacht Paeraki")
+    parser.add_argument("--address", default="A4:C1:37:14:70:77", help="Bluetooth MAC address of JBD BMS")
+    parser.add_argument("--broker", default="192.168.1.1", help="MQTT broker hostname or IP")
+    parser.add_argument("--port", type=int, default=1883, help="MQTT broker port")
+    parser.add_argument("--interval", type=float, default=2.0, help="Poll interval in seconds")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate telemetry data without connecting to BLE")
+    parser.add_argument("--once", action="store_true", help="Collect and publish one reading, then exit")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Log level")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    shutdown_event = asyncio.Event()
+
+    def _handle_signal(*_):
+        logger.info("Termination signal received. Exiting...")
+        shutdown_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            asyncio.get_running_loop().add_signal_handler(sig, _handle_signal)
+        except NotImplementedError:
+            pass
+
+    logger.info("Starting 72V collector (Broker: %s:%d, Mode: %s)", args.broker, args.port, "DRY-RUN" if args.dry_run else args.address)
+
+    # Dry run loop
+    if args.dry_run:
+        if aiomqtt:
             try:
-                all = await get_jbd_bms_registers("A4:C1:37:14:70:77")
-            except Exception as err:
-                print(err)
-            else:
-                for k, v in all.items():
-                    await mqtt_client.publish(f"72v/{k}", payload=v)
-            time.sleep(1)
+                async with aiomqtt.Client(args.broker, port=args.port) as mqtt_client:
+                    logger.info("Connected to MQTT broker at %s:%d", args.broker, args.port)
+                    while not shutdown_event.is_set():
+                        data = get_mock_telemetry()
+                        await publish_telemetry(mqtt_client, data)
+                        logger.info("Published dry-run telemetry: %s V, %s A, SoC: %s%%", data["total_voltage"], data["current"], data["rsoc"])
+                        if args.once:
+                            break
+                        try:
+                            await asyncio.wait_for(shutdown_event.wait(), timeout=args.interval)
+                        except asyncio.TimeoutError:
+                            pass
+            except Exception as e:
+                logger.warning("Could not connect to MQTT broker (%s). Printing mock data to stdout.", e)
+                data = get_mock_telemetry()
+                print(json.dumps(data, indent=2))
+        else:
+            data = get_mock_telemetry()
+            print(json.dumps(data, indent=2))
+        return
+
+    # Live BLE loop
+    bms = JBDBleClient(args.address)
+    while not shutdown_event.is_set():
+        try:
+            logger.info("Connecting to MQTT broker %s:%d...", args.broker, args.port)
+            async with aiomqtt.Client(args.broker, port=args.port) as mqtt_client:
+                logger.info("Connected to MQTT broker")
+
+                while not shutdown_event.is_set():
+                    try:
+                        await bms.connect(timeout=10.0)
+                        while not shutdown_event.is_set():
+                            telemetry = await bms.read_telemetry()
+                            await publish_telemetry(mqtt_client, telemetry)
+                            logger.info(
+                                "Published: %s V, %s A, %s W, SoC %s%%, %d cells",
+                                telemetry["total_voltage"],
+                                telemetry["current"],
+                                telemetry["power"],
+                                telemetry["rsoc"],
+                                len(telemetry.get("cell_voltages", [])),
+                            )
+                            if args.once:
+                                shutdown_event.set()
+                                break
+                            try:
+                                await asyncio.wait_for(shutdown_event.wait(), timeout=args.interval)
+                            except asyncio.TimeoutError:
+                                pass
+                    except (BleakError, TimeoutError, ConnectionError, OSError) as ble_err:
+                        err_msg = str(ble_err) if str(ble_err) else type(ble_err).__name__
+                        logger.warning("BLE communication error (%s): %s. Retrying in 5 seconds...", type(ble_err).__name__, err_msg)
+                        await bms.disconnect()
+                        if args.once:
+                            shutdown_event.set()
+                            break
+                        try:
+                            await asyncio.wait_for(shutdown_event.wait(), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            pass
+                    finally:
+                        await bms.disconnect()
+
+        except Exception as mqtt_err:
+            logger.error("MQTT connection error: %s. Retrying in 5 seconds...", mqtt_err)
+            try:
+                await asyncio.wait_for(shutdown_event.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
 
 
 if __name__ == "__main__":

@@ -1,0 +1,10 @@
+{
+  "appId": "nz.alientech.paeraki",
+  "appName": "Paeraki Monitor",
+  "webDir": "dist_app",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}
+

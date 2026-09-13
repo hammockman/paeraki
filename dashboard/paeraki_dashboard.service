@@ -1,0 +1,13 @@
+[Unit]
+Description=Paeraki Vessel Telemetry Web Dashboard
+After=network.target
+
+[Service]
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/dashboard/server.py --port 8080
+Restart=always
+RestartSec=5
+User=jh
+
+[Install]
+WantedBy=multi-user.target

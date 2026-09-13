@@ -1,0 +1,20 @@
+- fix poor battery charger performance (BF_TECH, Hexapower, 192.168.4.1) - hunting, not charging at full 20A
+  - logging charger state???
+- music player setup (see TODO.music)
+- currently the 72v pack is assummed to have a 200Ah capacity. if we kept track of all charge/discharge increments, we should be able to get a better estimate of the true capacity and monitor it over long run (i.e. capacity decrease over months/years)
+- dashboard
+  - implement a high contrast option for bright sunshine
+  - simplify the 12v monitor card
+  - make display of MQTT inspector optional
+  - add a home tab with essential ctrls
+    - 72V SoC (whichever definition selection on 72V tab)
+    - 12V SoC (based on AGM battery discharge curve and accumulated fluxes)
+    - GPS SoG
+  - what does "True" as the 12V badge mean ?
+  - ditch the 12V "Subscribed Keys" control
+  - why is 12V temp "--" ? (is it actually being reported?)
+  - move the MQTT feed to a separate tab
+  - what exactly is 12V "Daily Yield"?
+- minor mods to history explorer
+  - don't allow zoom out beyound data boundaries
+- integration with 12V load distribution/relays/fuses (wifi???)
