@@ -235,8 +235,9 @@ class TabGPS(QWidget):
             t_min = float(timestamps_sec[0])
             t_max = float(timestamps_sec[-1])
             pad = max(1.0, (t_max - t_min) * 0.02)
-            self.plot_sog.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad)
-            self.plot_cog.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad)
+            total_span = (t_max - t_min) + 2 * pad
+            self.plot_sog.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad, minXRange=5.0, maxXRange=total_span)
+            self.plot_cog.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad, minXRange=5.0, maxXRange=total_span)
 
         # Update 2D Map
         total_nm = 0.0

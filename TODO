@@ -1,20 +1,28 @@
 - fix poor battery charger performance (BF_TECH, Hexapower, 192.168.4.1) - hunting, not charging at full 20A
   - logging charger state???
 - music player setup (see TODO.music)
-- currently the 72v pack is assummed to have a 200Ah capacity. if we kept track of all charge/discharge increments, we should be able to get a better estimate of the true capacity and monitor it over long run (i.e. capacity decrease over months/years)
-- dashboard
-  - implement a high contrast option for bright sunshine
-  - simplify the 12v monitor card
-  - make display of MQTT inspector optional
-  - add a home tab with essential ctrls
-    - 72V SoC (whichever definition selection on 72V tab)
-    - 12V SoC (based on AGM battery discharge curve and accumulated fluxes)
-    - GPS SoG
-  - what does "True" as the 12V badge mean ?
-  - ditch the 12V "Subscribed Keys" control
-  - why is 12V temp "--" ? (is it actually being reported?)
-  - move the MQTT feed to a separate tab
-  - what exactly is 12V "Daily Yield"?
-- minor mods to history explorer
-  - don't allow zoom out beyound data boundaries
+- fix poor battery charger performance (BF_TECH, Hexapower, 192.168.4.1) - hunting, not charging at full 20A
+  - logging charger state???
+- music player setup (see TODO.music)
+- [DONE] currently the 72v pack is assummed to have a 200Ah capacity. if we kept track of all charge/discharge increments, we should be able to get a better estimate of the true capacity and monitor it over long run (i.e. capacity decrease over months/years)
+  - Implemented in logger/capacity_analyzer.py, battery_capacity_history table in paeraki.db, and dynamic MQTT retained communication
+- [DONE] dashboard
+  - [DONE] implement a high contrast option for bright sunshine
+  - [DONE] simplify the 12v monitor card
+  - [DONE] make display of MQTT inspector optional
+  - [DONE] add a home tab with essential ctrls
+    - [DONE] 72V SoC (whichever definition selection on 72V tab)
+    - [DONE] 12V SoC (based on AGM battery discharge curve and accumulated fluxes)
+    - [DONE] GPS SoG
+  - [DONE] what does "True" as the 12V badge mean ? (Resolved: boolean subtopic overwrite sanitized)
+  - [DONE] ditch the 12V "Subscribed Keys" control
+  - [DONE] why is 12V temp "--" ? (is it actually being reported?) (Resolved: active from Modbus reg 0x0103)
+  - [DONE] move the MQTT feed to a separate tab
+  - [DONE] what exactly is 12V "Daily Yield"? (Resolved: daily solar energy kWh into 12V battery)
+- [DONE] minor mods to history explorer
+  - [DONE] don't allow zoom out beyound data boundaries
 - integration with 12V load distribution/relays/fuses (wifi???)
+  - measure current draw of individual loads
+  - implement ability to switch loads on/off (via wifi???)
+- [DONE] alarms (via SMS or email)
+  - [DONE] 12V 50% capacity (Implemented in modular alarms/watch.py daemon with SMS via Teltonika router)

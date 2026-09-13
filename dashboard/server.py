@@ -21,6 +21,7 @@ from typing import Any
 # Ensure dashboard directory is in path
 sys.path.insert(0, str(Path(__file__).parent))
 from battery import BatteryIntegrator, calculate_voltage_soc
+from battery_12v import HouseBatteryIntegrator, calculate_agm_voltage_soc
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -54,6 +55,11 @@ class DashboardState:
             nominal_capacity_ah=200.0,
             state_file=DATA_DIR / "dashboard_soc_state.json",
             seed_ah=134.90,
+        )
+
+        self.battery_12v = HouseBatteryIntegrator(
+            nominal_capacity_ah=100.0,
+            state_file=DATA_DIR / "dashboard_12v_soc_state.json",
         )
 
         self.system_72v: dict[str, Any] = {
@@ -90,6 +96,13 @@ class DashboardState:
             "load_power": 0.0,
             "charging_status": "Idle",
             "battery_soc": 0,
+            "soc_12v_integrated": round(((self.battery_12v.integrated_ah or 0.0) / max(1.0, self.battery_12v.nominal_capacity_ah)) * 100.0, 1),
+            "soc_12v_voltage": 0.0,
+            "soc_12v_active": round(((self.battery_12v.integrated_ah or 0.0) / max(1.0, self.battery_12v.nominal_capacity_ah)) * 100.0, 1),
+            "integrated_12v_ah": round(self.battery_12v.integrated_ah or 0.0, 2),
+            "nominal_12v_capacity_ah": round(self.battery_12v.nominal_capacity_ah, 1),
+            "net_12v_current": 0.0,
+            "is_12v_calibrated": self.battery_12v.is_calibrated,
             "daily_yield_kwh": 0.0,
             "daily_load_kwh": 0.0,
             "controller_temperature": None,
@@ -131,6 +144,11 @@ class DashboardState:
         self.raw_topics: dict[str, Any] = {}
         self.recent_packets = deque(maxlen=150)
         self.ws_clients: set[WebSocket] = set()
+        self.alarms: dict[str, Any] = {
+            "overall_status": "OK",
+            "active_count": 0,
+            "active_alarms": [],
+        }
 
     def record_packet(self, topic: str, payload_str: str, source: str = "mqtt"):
         now = datetime.now(timezone.utc)
@@ -172,8 +190,65 @@ class DashboardState:
             )
             self.system_72v.update(soc_info)
         elif topic == "paeraki/12v/state" and isinstance(parsed_json, dict):
+            # Sanitize charging status to prevent boolean overwrites
+            raw_status = parsed_json.get("charging_status")
+            if isinstance(raw_status, bool) or str(raw_status).lower() in ("true", "false", ""):
+                parsed_json["charging_status"] = self.system_12v.get("charging_status", "Idle")
+
             self.system_12v.update(parsed_json)
             self.system_12v["last_updated"] = iso_now
+
+            # Run 12V AGM house battery model
+            v_batt = float(self.system_12v.get("battery_voltage") or 0.0)
+            chg_i = float(self.system_12v.get("battery_charge_current") or 0.0)
+            load_i = float(self.system_12v.get("load_current") or 0.0)
+            status_str = str(self.system_12v.get("charging_status") or "")
+            ts = self.system_12v.get("timestamp") or iso_now
+
+            soc_12v_info = self.battery_12v.update(
+                charge_current_a=chg_i,
+                load_current_a=load_i,
+                batt_voltage=v_batt,
+                timestamp_iso=ts,
+                charging_status=status_str,
+            )
+            self.system_12v.update(soc_12v_info)
+
+        elif topic == "paeraki/battery/72v/capacity" and isinstance(parsed_json, dict):
+            new_cap = parsed_json.get("estimated_capacity_ah")
+            if new_cap and float(new_cap) > 10.0:
+                self.battery.update_capacity(float(new_cap), parsed_json.get("soh_percentage"))
+                self.system_72v["nominal_capacity_ah"] = self.battery.nominal_capacity_ah
+                self.system_72v["soh_percentage"] = self.battery.soh_percentage
+                logger.info("Updated 72V capacity via MQTT to %.1f Ah (SoH: %.1f%%)", self.battery.nominal_capacity_ah, self.battery.soh_percentage)
+
+        elif topic == "paeraki/battery/12v/capacity" and isinstance(parsed_json, dict):
+            new_cap = parsed_json.get("estimated_capacity_ah")
+            if new_cap and float(new_cap) > 10.0:
+                self.battery_12v.set_capacity(float(new_cap), parsed_json.get("soh_percentage"))
+                self.system_12v["nominal_capacity_ah"] = self.battery_12v.nominal_capacity_ah
+                self.system_12v["soh_percentage"] = self.battery_12v.soh_percentage
+                logger.info("Updated 12V capacity via MQTT to %.1f Ah (SoH: %.1f%%)", self.battery_12v.nominal_capacity_ah, self.battery_12v.soh_percentage)
+
+        elif topic == "paeraki/alarms/state" and isinstance(parsed_json, dict):
+            self.alarms = parsed_json
+
+        elif topic.startswith("12v/"):
+            field = topic.split("/", 1)[1]
+            val = parsed_json if parsed_json is not None else payload_str
+            # Prevent boolean subtopics from overwriting human-readable charging status
+            if field.lower() in ("charging_status", "status") and str(val).lower() in ("true", "false"):
+                pass
+            else:
+                try:
+                    if isinstance(val, str) and "." in val:
+                        val = float(val)
+                    elif isinstance(val, str) and (val.lstrip("-").isdigit()):
+                        val = int(val)
+                except ValueError:
+                    pass
+                self.system_12v[field] = val
+                self.system_12v["last_updated"] = iso_now
 
         elif topic == "paeraki/gps/state" and isinstance(parsed_json, dict):
             self.system_gps.update(parsed_json)
@@ -247,6 +322,7 @@ class DashboardState:
                 "charger": self.charger,
                 "raw_topics": self.raw_topics,
             },
+            "alarms": self.alarms,
             "recent_packets": list(self.recent_packets)[:50],
         }
 
@@ -350,11 +426,18 @@ async def mock_worker(interval: float = 2.0):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "battery_voltage": batt_12,
                 "battery_soc": round(92.0 + random.uniform(-1, 1), 0),
+                "battery_charge_current": round(sol_p / max(1.0, batt_12), 2),
                 "solar_power": sol_p,
                 "solar_voltage": sol_v,
                 "solar_current": sol_c,
+                "load_voltage": batt_12,
+                "load_current": 1.2,
+                "load_power": round(batt_12 * 1.2, 1),
                 "daily_yield_kwh": round(1.85 + random.uniform(0.01, 0.05), 2),
-                "charging_status": "MPPT Bulk Charging" if sol_p > 50 else "Float",
+                "daily_load_kwh": round(0.42 + random.uniform(0.001, 0.005), 3),
+                "charging_status": "MPPT Charge" if sol_p > 50 else "Float",
+                "controller_temperature": round(21.0 + random.uniform(-0.5, 0.5), 1),
+                "battery_temperature": round(24.0 + random.uniform(-0.3, 0.3), 1),
             }
 
             # Inject into state

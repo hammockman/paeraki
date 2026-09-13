@@ -118,6 +118,27 @@ CREATE TABLE IF NOT EXISTS telemetry_charger (
 
 CREATE INDEX IF NOT EXISTS idx_charger_epoch ON telemetry_charger(epoch_ms);
 
+-- 6. Battery Capacity & Degradation History
+CREATE TABLE IF NOT EXISTS battery_capacity_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    epoch_ms INTEGER NOT NULL,
+    pack_name TEXT NOT NULL,
+    estimated_capacity_ah REAL NOT NULL,
+    nameplate_capacity_ah REAL NOT NULL,
+    soh_percentage REAL NOT NULL,
+    confidence_score REAL,
+    cycle_delta_ah REAL,
+    start_soc REAL,
+    end_soc REAL,
+    mean_temp REAL,
+    source TEXT,
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_cap_history_epoch ON battery_capacity_history(epoch_ms);
+CREATE INDEX IF NOT EXISTS idx_cap_history_pack ON battery_capacity_history(pack_name, epoch_ms);
+
 -- Convenient views for data analysis
 CREATE VIEW IF NOT EXISTS v_recent_72v AS
     SELECT * FROM telemetry_72v ORDER BY epoch_ms DESC LIMIT 500;
@@ -133,6 +154,9 @@ CREATE VIEW IF NOT EXISTS v_recent_charger AS
 
 CREATE VIEW IF NOT EXISTS v_recent_packets AS
     SELECT * FROM packets ORDER BY epoch_ms DESC LIMIT 500;
+
+CREATE VIEW IF NOT EXISTS v_recent_capacity AS
+    SELECT * FROM battery_capacity_history ORDER BY epoch_ms DESC LIMIT 100;
 """
 
 
@@ -149,6 +173,7 @@ class TelemetryDatabase:
         self._12v_batch: list[tuple] = []
         self._gps_batch: list[tuple] = []
         self._charger_batch: list[tuple] = []
+        self._capacity_batch: list[tuple] = []
 
         self._conn: sqlite3.Connection | None = None
         self._init_db()
@@ -223,6 +248,10 @@ class TelemetryDatabase:
         # Check for Charger structured payload
         if (topic in ("paeraki/charger/state", "charger/telemetry")) and isinstance(parsed_json, dict):
             self._record_charger(parsed_json, timestamp_iso, epoch_ms)
+
+        # Check for Capacity update payload
+        if (topic in ("paeraki/battery/72v/capacity", "paeraki/battery/12v/capacity") or topic.startswith("paeraki/battery/")) and topic.endswith("/capacity") and isinstance(parsed_json, dict):
+            self._record_capacity(parsed_json, timestamp_iso, epoch_ms, topic)
 
         # Check batch threshold
         if len(self._raw_batch) >= self.batch_size:
@@ -329,9 +358,72 @@ class TelemetryDatabase:
         )
         self._charger_batch.append(row)
 
+    def _record_capacity(self, data: dict, timestamp_iso: str, epoch_ms: int, topic: str):
+        pack_name = data.get("pack_name")
+        if not pack_name:
+            if "72v" in topic:
+                pack_name = "72v_propulsion"
+            elif "12v" in topic:
+                pack_name = "12v_house"
+            else:
+                pack_name = "unknown"
+
+        est_cap = float(data.get("estimated_capacity_ah") or 0.0)
+        nom_cap = float(data.get("nameplate_capacity_ah") or (200.0 if "72v" in pack_name else 100.0))
+        soh = float(data.get("soh_percentage") or (round((est_cap / max(1.0, nom_cap)) * 100.0, 1) if est_cap else 100.0))
+        conf = float(data.get("confidence_score")) if data.get("confidence_score") is not None else None
+        delta_ah = float(data.get("cycle_delta_ah")) if data.get("cycle_delta_ah") is not None else None
+        start_soc = float(data.get("start_soc")) if data.get("start_soc") is not None else None
+        end_soc = float(data.get("end_soc")) if data.get("end_soc") is not None else None
+        mean_t = float(data.get("mean_temp")) if data.get("mean_temp") is not None else None
+        source = str(data.get("source") or "cycle_analyzer")
+        notes = str(data.get("notes") or "")
+
+        row = (
+            timestamp_iso,
+            epoch_ms,
+            pack_name,
+            est_cap,
+            nom_cap,
+            soh,
+            conf,
+            delta_ah,
+            start_soc,
+            end_soc,
+            mean_t,
+            source,
+            notes,
+        )
+        self._capacity_batch.append(row)
+
+    def record_capacity_event(self, data: dict, timestamp_iso: str | None = None) -> None:
+        """Directly writes a capacity estimation event and flushes."""
+        if not timestamp_iso:
+            now = datetime.now(timezone.utc)
+            timestamp_iso = now.isoformat()
+            epoch_ms = int(now.timestamp() * 1000)
+        else:
+            try:
+                dt = datetime.fromisoformat(timestamp_iso)
+                epoch_ms = int(dt.timestamp() * 1000)
+            except Exception:
+                now = datetime.now(timezone.utc)
+                epoch_ms = int(now.timestamp() * 1000)
+        pack_name = data.get("pack_name", "72v_propulsion")
+        topic = f"paeraki/battery/{pack_name}/capacity"
+        self._record_capacity(data, timestamp_iso, epoch_ms, topic)
+        self.flush()
+
     def flush(self) -> int:
         """Flushes all pending buffered records to SQLite in a single transaction."""
-        if not self._raw_batch and not self._72v_batch and not self._12v_batch and not self._gps_batch and not self._charger_batch:
+        if (
+            not self._raw_batch
+            and not self._72v_batch
+            and not self._12v_batch
+            and not self._gps_batch
+            and not self._charger_batch
+            and not self._capacity_batch
+        ):
             return 0
 
         conn = self._get_connection()
@@ -392,6 +484,18 @@ class TelemetryDatabase:
                         self._charger_batch
                     )
                     self._charger_batch.clear()
+
+                if self._capacity_batch:
+                    conn.executemany(
+                        """INSERT INTO battery_capacity_history (
+                            timestamp, epoch_ms, pack_name, estimated_capacity_ah,
+                            nameplate_capacity_ah, soh_percentage, confidence_score,
+                            cycle_delta_ah, start_soc, end_soc, mean_temp,
+                            source, notes
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        self._capacity_batch
+                    )
+                    self._capacity_batch.clear()
 
             logger.debug("Flushed %d packets to SQLite", total_flushed)
             return total_flushed

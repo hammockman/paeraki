@@ -117,6 +117,40 @@ html, body {
   text-transform: uppercase;
 }
 
+.top-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.contrast-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.6rem;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.contrast-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--cyan);
+}
+
+.contrast-toggle-btn.active {
+  background: var(--amber);
+  border-color: #ffffff;
+  color: #000000;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+}
+
 .status-indicator {
   display: flex;
   align-items: center;
@@ -1173,3 +1207,317 @@ html, body {
   border-radius: 0 0 3px 3px;
   box-shadow: 0 0 10px var(--cyan);
 }
+
+/* ---------------- Home Primary Instruments Grid ---------------- */
+.home-instruments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.home-inst-card {
+  background: rgba(18, 26, 46, 0.7);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+}
+
+.home-inst-card:hover {
+  border-color: var(--border-glow);
+  background: rgba(22, 32, 58, 0.85);
+}
+
+.inst-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.inst-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.inst-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 9999px;
+  letter-spacing: 0.05em;
+}
+
+.inst-gauge-wrap {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin: 0.25rem auto 0.75rem;
+}
+
+.home-gauge-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.home-gauge-center {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-gauge-val {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.home-gauge-unit {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.fill-amber {
+  stroke: var(--amber) !important;
+}
+
+.home-sog-hero-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 140px;
+  margin: 0.25rem auto 0.75rem;
+}
+
+.sog-big-number {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.sog-val {
+  font-size: 3.4rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--cyan);
+}
+
+.sog-unit {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.sog-sub-row {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 0.35rem;
+}
+
+.inst-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  background: rgba(10, 15, 28, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  text-align: center;
+}
+
+.inst-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inst-stat-lbl {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.inst-stat-val {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.inst-sub-footer {
+  margin-top: 0.6rem;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* 12V Dual Progress Row */
+.battery-soc-dual-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.3rem;
+}
+
+.mini-progress-ocv {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* ---------------- Sunlight High-Contrast Theme ---------------- */
+body.high-contrast {
+  --bg-primary: #000000;
+  --bg-secondary: #000000;
+  --bg-card: #000000;
+  --bg-card-hover: #111111;
+  --border-subtle: #ffffff;
+  --border-glow: #ffffff;
+  --text-primary: #ffffff;
+  --text-secondary: #ffffff;
+  --text-muted: #cccccc;
+  --text-dim: #aaaaaa;
+
+  --cyan: #00ffff;
+  --emerald: #00ff66;
+  --amber: #ffff00;
+  --rose: #ff3366;
+  --purple: #ff00ff;
+
+  background-color: #000000 !important;
+  background-image: none !important;
+  color: #ffffff !important;
+}
+
+body.high-contrast .card {
+  background: #000000 !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: none !important;
+}
+
+body.high-contrast .top-bar,
+body.high-contrast .bottom-nav {
+  background: #000000 !important;
+  border-color: #ffffff !important;
+}
+
+body.high-contrast .stat-hero {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  text-shadow: none !important;
+}
+
+body.high-contrast .glow-teal,
+body.high-contrast .glow-green,
+body.high-contrast .glow-amber {
+  text-shadow: none !important;
+}
+
+body.high-contrast .glow-teal { color: #00ffff !important; }
+body.high-contrast .glow-amber { color: #ffff00 !important; }
+body.high-contrast .glow-green { color: #00ff66 !important; }
+
+body.high-contrast .nav-tab {
+  color: #888888 !important;
+}
+
+body.high-contrast .nav-tab.active {
+  color: #00ffff !important;
+  font-weight: 800 !important;
+}
+
+body.high-contrast .nav-tab.active svg {
+  stroke: #00ffff !important;
+  stroke-width: 2.5 !important;
+}
+
+body.high-contrast .nav-tab.active::before {
+  background: #00ffff !important;
+  box-shadow: 0 0 6px #00ffff !important;
+}
+
+body.high-contrast .submetric,
+body.high-contrast .home-inst-card,
+body.high-contrast .solar-hero-block,
+body.high-contrast .gps-hero-block,
+body.high-contrast .gps-coords-card,
+body.high-contrast .soc-method-card {
+  border-color: #888888 !important;
+  background: #050505 !important;
+}
+
+/* ================= Global Vessel Alarm Banner ================= */
+.alarm-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(239, 68, 68, 0.16);
+  border-left: 4px solid #ef4444;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: all 0.3s ease;
+}
+
+.alarm-banner.hidden {
+  display: none !important;
+}
+
+.alarm-banner.critical {
+  background: rgba(239, 68, 68, 0.25);
+  border-left-color: #ef4444;
+}
+
+.alarm-banner.warning {
+  background: rgba(245, 158, 11, 0.2);
+  border-left-color: #f59e0b;
+}
+
+.alarm-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.alarm-msg {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: #ffffff;
+  letter-spacing: 0.01em;
+}
+
+.alarm-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  background: #ef4444;
+  color: #ffffff;
+  letter-spacing: 0.05em;
+}
+
+.alarm-badge.warning {
+  background: #f59e0b;
+  color: #000000;
+}
+
+

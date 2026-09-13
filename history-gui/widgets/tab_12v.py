@@ -183,8 +183,9 @@ class Tab12V(QWidget):
             t_min = float(timestamps_sec[0])
             t_max = float(timestamps_sec[-1])
             pad = max(1.0, (t_max - t_min) * 0.02)
+            total_span = (t_max - t_min) + 2 * pad
             for p in (self.plot_batt, self.plot_solar):
-                p.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad)
+                p.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad, minXRange=5.0, maxXRange=total_span)
 
         # KPI Updates & Baseline Range Summary
         latest = rows[-1]

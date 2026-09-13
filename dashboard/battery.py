@@ -84,7 +84,9 @@ class BatteryIntegrator:
         state_file: Path | str | None = None,
         seed_ah: float = 134.90,
     ):
+        self.nameplate_capacity_ah = 200.0
         self.nominal_capacity_ah = nominal_capacity_ah
+        self.soh_percentage = round((self.nominal_capacity_ah / self.nameplate_capacity_ah) * 100.0, 1)
         self.integrated_ah = seed_ah
         self.state_file = Path(state_file) if state_file else None
         self.last_timestamp: float | None = None
@@ -93,6 +95,20 @@ class BatteryIntegrator:
 
         # Attempt to load persistent state
         self.load_state()
+
+    def update_capacity(self, new_capacity_ah: float, soh_pct: float | None = None):
+        """Updates nominal capacity dynamically (e.g. from learned degradation) preserving remaining Ah ratio."""
+        if new_capacity_ah <= 10.0:
+            return
+        ratio = self.integrated_ah / max(1.0, self.nominal_capacity_ah)
+        self.nominal_capacity_ah = float(new_capacity_ah)
+        self.integrated_ah = min(self.nominal_capacity_ah, ratio * self.nominal_capacity_ah)
+        if soh_pct is not None:
+            self.soh_percentage = float(soh_pct)
+        else:
+            self.soh_percentage = round((self.nominal_capacity_ah / self.nameplate_capacity_ah) * 100.0, 1)
+        self.save_state(force=True)
+        logger.info("Updated 72V nominal capacity to %.1f Ah (SoH: %.1f%%)", self.nominal_capacity_ah, self.soh_percentage)
 
     def load_state(self):
         """Loads previously saved integration state from disk if available."""
@@ -105,6 +121,10 @@ class BatteryIntegrator:
             saved_ah = float(data.get("integrated_ah", self.integrated_ah))
             self.nominal_capacity_ah = float(data.get("nominal_capacity_ah", self.nominal_capacity_ah))
             self.integrated_ah = max(0.0, min(self.nominal_capacity_ah, saved_ah))
+            if "soh_percentage" in data:
+                self.soh_percentage = float(data["soh_percentage"])
+            else:
+                self.soh_percentage = round((self.nominal_capacity_ah / self.nameplate_capacity_ah) * 100.0, 1)
             last_ts_str = data.get("last_timestamp")
             if last_ts_str:
                 self.last_timestamp = datetime.fromisoformat(last_ts_str).timestamp()
@@ -125,6 +145,8 @@ class BatteryIntegrator:
             payload = {
                 "integrated_ah": round(self.integrated_ah, 3),
                 "nominal_capacity_ah": round(self.nominal_capacity_ah, 1),
+                "nameplate_capacity_ah": round(self.nameplate_capacity_ah, 1),
+                "soh_percentage": round(self.soh_percentage, 1),
                 "last_timestamp": datetime.now(timezone.utc).isoformat(),
                 "soc_integrated": round((self.integrated_ah / max(1.0, self.nominal_capacity_ah)) * 100.0, 1),
             }
@@ -203,6 +225,8 @@ class BatteryIntegrator:
         return {
             "soc_integrated": soc_integrated,
             "integrated_ah": round(self.integrated_ah, 2),
+            "nominal_capacity_ah": round(self.nominal_capacity_ah, 1),
+            "soh_percentage": round(self.soh_percentage, 1),
             "soc_voltage": soc_voltage,
             "vcell_avg": vcell_avg,
             "soc_bms": round(soc_bms, 1),

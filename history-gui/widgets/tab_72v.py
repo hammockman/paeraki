@@ -299,8 +299,9 @@ class Tab72V(QWidget):
             t_min = float(timestamps_sec[0])
             t_max = float(timestamps_sec[-1])
             pad = max(1.0, (t_max - t_min) * 0.02)
-            self.plot_vp.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad)
-            self.plot_bottom.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad)
+            total_span = (t_max - t_min) + 2 * pad
+            self.plot_vp.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad, minXRange=5.0, maxXRange=total_span)
+            self.plot_bottom.plotItem.vb.setLimits(xMin=t_min - pad, xMax=t_max + pad, minXRange=5.0, maxXRange=total_span)
 
         # Auto-fit view ranges
         self.plot_vp.enableAutoRange(axis="y")
