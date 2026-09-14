@@ -51,7 +51,6 @@
   const home12vBarFill = document.getElementById('home-12v-bar-fill');
   const homeVal12vCap = document.getElementById('home-val-12v-cap');
   const homeVal12vSub = document.getElementById('home-val-12v-sub');
-  const homeStatusBadge = document.getElementById('home-status-badge');
 
   // 72V DOM Elements
   const val72vSoc = document.getElementById('val-72v-soc');
@@ -815,7 +814,6 @@
       console.log('[Paeraki Monitor] WebSocket Connected');
       connDot.className = 'pulse-dot connected';
       connLabel.textContent = 'Live';
-      if (homeStatusBadge) homeStatusBadge.textContent = 'ONLINE';
       reconnectDelay = 1000;
     };
 
@@ -842,7 +840,6 @@
       console.warn('[Paeraki Monitor] WebSocket closed:', e.reason || e.code);
       connDot.className = 'pulse-dot';
       connLabel.textContent = 'Reconnecting...';
-      if (homeStatusBadge) homeStatusBadge.textContent = 'CONNECTING...';
       scheduleReconnect();
     };
 
