@@ -17,8 +17,9 @@ bash "$DIR/build_apk.sh"
 
 # 1. Check if emulator is already running
 if ! adb get-state 2>/dev/null | grep -q "device"; then
-    echo "==> Starting Android Virtual Device ($AVD_NAME)..."
-    "$ANDROID_HOME/emulator/emulator" -avd "$AVD_NAME" -gpu host -no-boot-anim &
+    echo "==> Starting Android Virtual Device ($AVD_NAME) configured as OPPO A60..."
+    echo "    Display: 6.67\" 720x1604 (20:9) @ 90Hz | RAM: 4GB | CPU: Snapdragon 680 (Octa-core)"
+    "$ANDROID_HOME/emulator/emulator" -avd "$AVD_NAME" -gpu host -no-snapshot-load -crash-report-mode never -no-boot-anim &
     
     echo "==> Waiting for emulator device to respond..."
     adb wait-for-device
