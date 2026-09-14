@@ -1,61 +1,26 @@
-// Paeraki Vessel Monitor Service Worker (PWA Offline & Caching)
-const CACHE_NAME = 'paeraki-pwa-v2';
-const STATIC_ASSETS = [
-  '/',
-  '/static/index.html',
-  '/static/style.css',
-  '/static/app.js',
-  '/static/manifest.json',
-  '/static/icon-192.png',
-  '/static/icon-512.png'
-];
+// Paeraki Vessel Monitor Service Worker - Cache Invalidation & Self-Unregister
+// This worker clears all legacy caches and unregisters itself to prevent stale asset serving.
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[PWA SW] Pre-caching static assets');
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            console.log('[PWA SW] Removing old cache', key);
-            return caches.delete(key);
-          }
-        })
-      );
+      return Promise.all(keys.map((key) => {
+        console.log('[PWA SW] Purging cache:', key);
+        return caches.delete(key);
+      }));
+    }).then(() => {
+      console.log('[PWA SW] All legacy caches cleared. Unregistering service worker.');
+      return self.registration.unregister();
     })
   );
   self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  // Do not intercept live telemetry WebSockets, API calls, or APK downloads
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws') || url.pathname.startsWith('/download')) {
-    return;
-  }
-
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached asset, but update cache in background (stale-while-revalidate)
-        fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
-          }
-        }).catch(() => {});
-        return cachedResponse;
-      }
-      return fetch(event.request);
-    })
-  );
+  // Always fetch directly from network; never serve stale cached assets
+  event.respondWith(fetch(event.request));
 });

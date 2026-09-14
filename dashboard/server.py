@@ -475,6 +475,16 @@ def create_app(broker: str, port: int, enable_mock: bool = False) -> FastAPI:
 
     app = FastAPI(title="Paeraki Vessel Monitor", lifespan=lifespan)
 
+    @app.middleware("http")
+    async def add_no_cache_headers(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path == "/sw.js" or path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

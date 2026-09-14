@@ -2,6 +2,20 @@
 (function() {
   'use strict';
 
+  // ---------------- Cache & Service Worker Invalidation ----------------
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+      for (const reg of registrations) {
+        reg.unregister().then(() => console.log('[SW] Purged service worker:', reg.scope));
+      }
+    }).catch(() => {});
+  }
+  if ('caches' in window) {
+    caches.keys().then(keys => {
+      for (const key of keys) caches.delete(key);
+    }).catch(() => {});
+  }
+
   // DOM Elements - Connection & Header
   const connDot = document.getElementById('conn-dot');
   const connLabel = document.getElementById('conn-label');
@@ -12,29 +26,31 @@
   const btnContrastToggle = document.getElementById('btn-contrast-toggle');
 
   // Home Tab DOM Elements
-  const homeVal72vSoc = document.getElementById('home-val-72v-soc');
-  const home72vModeBadge = document.getElementById('home-72v-mode-badge');
-  const home72vGaugeFill = document.getElementById('home-72v-gauge-fill');
-  const homeVal72vV = document.getElementById('home-val-72v-v');
-  const homeVal72vA = document.getElementById('home-val-72v-a');
+  const homeCardPower = document.getElementById('home-card-power');
+  const homeCardSpeed = document.getElementById('home-card-speed');
+  const homeCardHeading = document.getElementById('home-card-heading');
+  const homeCard72v = document.getElementById('home-card-72v');
+  const homeCard12v = document.getElementById('home-card-12v');
+
   const homeVal72vW = document.getElementById('home-val-72v-w');
-  const homeVal72vCap = document.getElementById('home-val-72v-cap');
-
-  const homeVal12vSoc = document.getElementById('home-val-12v-soc');
-  const home12vStatusBadge = document.getElementById('home-12v-status-badge');
-  const home12vGaugeFill = document.getElementById('home-12v-gauge-fill');
-  const homeVal12vV = document.getElementById('home-val-12v-v');
-  const homeVal12vSolar = document.getElementById('home-val-12v-solar');
-  const homeVal12vNet = document.getElementById('home-val-12v-net');
-  const homeVal12vCap = document.getElementById('home-val-12v-cap');
-
+  const homeVal72vSub = document.getElementById('home-val-72v-sub');
   const homeValGpsSog = document.getElementById('home-val-gps-sog');
   const homeValGpsSogSub = document.getElementById('home-val-gps-sog-sub');
   const homeValGpsCog = document.getElementById('home-val-gps-cog');
   const homeValGpsCardinal = document.getElementById('home-val-gps-cardinal');
   const homeValGpsSats = document.getElementById('home-val-gps-sats');
-  const homeValGpsPos = document.getElementById('home-val-gps-pos');
-  const homeGpsFixBadge = document.getElementById('home-gps-fix-badge');
+
+  const homeVal72vSoc = document.getElementById('home-val-72v-soc');
+  const home72vModeBadge = document.getElementById('home-72v-mode-badge');
+  const home72vBarFill = document.getElementById('home-72v-bar-fill');
+  const homeVal72vCap = document.getElementById('home-val-72v-cap');
+  const homeVal72vMeta = document.getElementById('home-val-72v-meta');
+
+  const homeVal12vSoc = document.getElementById('home-val-12v-soc');
+  const home12vStatusBadge = document.getElementById('home-12v-status-badge');
+  const home12vBarFill = document.getElementById('home-12v-bar-fill');
+  const homeVal12vCap = document.getElementById('home-val-12v-cap');
+  const homeVal12vSub = document.getElementById('home-val-12v-sub');
   const homeStatusBadge = document.getElementById('home-status-badge');
 
   // 72V DOM Elements
@@ -56,6 +72,9 @@
   const cellMinEl = document.getElementById('cell-min');
   const cellMaxEl = document.getElementById('cell-max');
   const cellDeltaEl = document.getElementById('cell-delta');
+  const cellHoverVal = document.getElementById('cell-hover-val');
+  const cellHoverStat = document.getElementById('cell-hover-stat');
+  const cellHoverSep = document.getElementById('cell-hover-sep');
 
   // Tri-SoC Comparison DOM
   const cardSocIntegrated = document.getElementById('card-soc-integrated');
@@ -123,29 +142,30 @@
   let selectedSocMode = 'integrated'; // Default to displaying the dashboard integrated SOC
   const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 50; // 314.159
 
-  // Initialize SVG Gauges
+  // Initialize SVG Gauges (72V Detail Tab)
   if (socGaugeFill) {
     socGaugeFill.style.strokeDasharray = GAUGE_CIRCUMFERENCE;
     socGaugeFill.style.strokeDashoffset = GAUGE_CIRCUMFERENCE;
   }
-  if (home72vGaugeFill) {
-    home72vGaugeFill.style.strokeDasharray = GAUGE_CIRCUMFERENCE;
-    home72vGaugeFill.style.strokeDashoffset = GAUGE_CIRCUMFERENCE;
-  }
-  if (home12vGaugeFill) {
-    home12vGaugeFill.style.strokeDasharray = GAUGE_CIRCUMFERENCE;
-    home12vGaugeFill.style.strokeDashoffset = GAUGE_CIRCUMFERENCE;
-  }
 
-  // ---------------- High Contrast Mode (Sunlight) ----------------
-  let isHighContrast = localStorage.getItem('paeraki_high_contrast') === 'true';
+  // Home Card Click Handlers -> Navigate to detail tabs
+  if (homeCardPower) homeCardPower.addEventListener('click', () => switchTab('72v'));
+  if (homeCardSpeed) homeCardSpeed.addEventListener('click', () => switchTab('gps'));
+  if (homeCardHeading) homeCardHeading.addEventListener('click', () => switchTab('gps'));
+  if (homeCard72v) homeCard72v.addEventListener('click', () => switchTab('72v'));
+  if (homeCard12v) homeCard12v.addEventListener('click', () => switchTab('12v'));
+
+  // ---------------- Sunlight Mode (Daylight Theme) ----------------
+  const urlParams = new URLSearchParams(window.location.search);
+  let isHighContrast = urlParams.get('sunlight') === '1' || (localStorage.getItem('paeraki_high_contrast') === 'true');
 
   function applyHighContrast(enabled) {
     document.body.classList.toggle('high-contrast', enabled);
     if (btnContrastToggle) {
       btnContrastToggle.classList.toggle('active', enabled);
-      const icon = btnContrastToggle.querySelector('.contrast-icon');
-      if (icon) icon.textContent = enabled ? '🕶️' : '☀️';
+      const icon = document.getElementById('theme-icon') || btnContrastToggle.querySelector('.theme-icon') || btnContrastToggle.querySelector('.contrast-icon');
+      if (icon) icon.textContent = enabled ? '🌙' : '☀️';
+      btnContrastToggle.title = enabled ? 'Switch to Dark Theme' : 'Switch to Daylight Theme';
     }
     localStorage.setItem('paeraki_high_contrast', enabled ? 'true' : 'false');
   }
@@ -158,7 +178,7 @@
   }
   applyHighContrast(isHighContrast);
 
-  // ---------------- Tab Navigation (6 Tabs) ----------------
+  // ---------------- Tab Navigation ----------------
   const navTabs = document.querySelectorAll('.nav-tab');
   const tabPanels = document.querySelectorAll('.tab-panel');
 
@@ -179,7 +199,8 @@
     });
   });
 
-  const savedTab = localStorage.getItem('paeraki_active_tab') || 'home';
+  const urlTab = urlParams.get('tab');
+  const savedTab = urlTab || localStorage.getItem('paeraki_active_tab') || 'home';
   switchTab(savedTab);
 
   // ---------------- Cardinal Direction Helper ----------------
@@ -192,11 +213,13 @@
 
   // ---------------- Home Tab Update Pipeline ----------------
   function updateHomeTab() {
-    // 1. 72V Instrument
+    // 1. 72V Propulsion Instrument (SoC + Power)
     if (cached72v) {
       const vTotal = parseFloat(cached72v.total_voltage) || 0;
       const curr = parseFloat(cached72v.current) || 0;
-      const pwr = parseFloat(cached72v.power) || Math.round(vTotal * curr);
+      const pwr = parseFloat(cached72v.power) !== undefined && !isNaN(parseFloat(cached72v.power))
+        ? parseFloat(cached72v.power)
+        : Math.round(vTotal * curr);
       const capNom = parseFloat(cached72v.nominal_capacity_ah) || 200.0;
 
       let displaySoc = 0.0;
@@ -208,21 +231,23 @@
         displaySoc = parseFloat(cached72v.soc_integrated) || 0.0;
       }
 
-      if (homeVal72vSoc) homeVal72vSoc.textContent = displaySoc > 0 ? displaySoc.toFixed(1) : '--.-';
+      if (homeVal72vSoc) homeVal72vSoc.textContent = displaySoc > 0 ? `${displaySoc.toFixed(1)}%` : '--.-%';
       if (home72vModeBadge) home72vModeBadge.textContent = selectedSocMode.toUpperCase();
-      if (homeVal72vV) homeVal72vV.textContent = vTotal > 0 ? `${vTotal.toFixed(1)} V` : '--.- V';
-      if (homeVal72vA) homeVal72vA.textContent = `${curr >= 0 ? '+' : ''}${curr.toFixed(1)} A`;
-      if (homeVal72vW) homeVal72vW.textContent = `${pwr >= 0 ? '+' : ''}${pwr.toFixed(0)} W`;
+      if (homeVal72vW) homeVal72vW.textContent = Math.abs(pwr) < 10000 ? `${Math.round(pwr)}` : `${(pwr / 1000).toFixed(1)}k`;
+      if (homeVal72vSub) homeVal72vSub.textContent = `${vTotal > 0 ? vTotal.toFixed(1) : '--.-'} V · ${curr >= 0 ? '+' : ''}${curr.toFixed(1)} A`;
 
-      if (home72vGaugeFill) {
-        const offset = GAUGE_CIRCUMFERENCE - (Math.min(100, Math.max(0, displaySoc)) / 100) * GAUGE_CIRCUMFERENCE;
-        home72vGaugeFill.style.strokeDashoffset = offset;
+      if (home72vBarFill) {
+        const clamped = Math.min(100, Math.max(0, displaySoc));
+        home72vBarFill.style.width = `${clamped}%`;
       }
 
       const intAh = parseFloat(cached72v.integrated_ah) || 0;
       if (homeVal72vCap) {
-        const soh = cached72v.soh_percentage ? ` | ${cached72v.soh_percentage}% SoH` : '';
-        homeVal72vCap.textContent = `${intAh.toFixed(1)} / ${capNom.toFixed(0)} Ah${soh}`;
+        homeVal72vCap.textContent = `${intAh.toFixed(1)} / ${capNom.toFixed(0)} Ah`;
+      }
+      if (homeVal72vMeta) {
+        const soh = cached72v.soh_percentage ? ` · ${cached72v.soh_percentage}% SoH` : '';
+        homeVal72vMeta.textContent = `${vTotal > 0 ? vTotal.toFixed(1) : '--.-'} V${soh}`;
       }
     }
 
@@ -230,22 +255,19 @@
     if (cached12v) {
       const battV = parseFloat(cached12v.battery_voltage) || 0;
       const soc12 = cached12v.soc_12v_active !== undefined ? parseFloat(cached12v.soc_12v_active) : (parseFloat(cached12v.battery_soc) || 0);
-      const solW = parseFloat(cached12v.solar_power) || 0;
       const chgI = parseFloat(cached12v.battery_charge_current) || 0;
       const loadI = parseFloat(cached12v.load_current) || 0;
       const netI = cached12v.net_12v_current !== undefined ? parseFloat(cached12v.net_12v_current) : (chgI - loadI);
       const nomCap = parseFloat(cached12v.nominal_12v_capacity_ah || cached12v.nominal_capacity_ah) || 100.0;
       const intAh = parseFloat(cached12v.integrated_12v_ah || cached12v.integrated_ah) || 0.0;
 
-      if (homeVal12vSoc) homeVal12vSoc.textContent = soc12 > 0 ? soc12.toFixed(0) : '--';
-      if (home12vStatusBadge) home12vStatusBadge.textContent = cached12v.charging_status || 'ACTIVE';
-      if (homeVal12vV) homeVal12vV.textContent = battV > 0 ? `${battV.toFixed(2)} V` : '--.- V';
-      if (homeVal12vSolar) homeVal12vSolar.textContent = `${solW.toFixed(0)} W`;
-      if (homeVal12vNet) homeVal12vNet.textContent = `${netI >= 0 ? '+' : ''}${netI.toFixed(1)} A`;
+      if (homeVal12vSoc) homeVal12vSoc.textContent = soc12 > 0 ? `${soc12.toFixed(0)}%` : '--%';
+      if (home12vStatusBadge) home12vStatusBadge.textContent = (cached12v.charging_status || 'FLOAT').toUpperCase();
+      if (homeVal12vSub) homeVal12vSub.textContent = `${battV > 0 ? battV.toFixed(2) : '--.-'} V · Net ${netI >= 0 ? '+' : ''}${netI.toFixed(1)} A`;
 
-      if (home12vGaugeFill) {
-        const offset = GAUGE_CIRCUMFERENCE - (Math.min(100, Math.max(0, soc12)) / 100) * GAUGE_CIRCUMFERENCE;
-        home12vGaugeFill.style.strokeDashoffset = offset;
+      if (home12vBarFill) {
+        const clamped = Math.min(100, Math.max(0, soc12));
+        home12vBarFill.style.width = `${clamped}%`;
       }
 
       if (homeVal12vCap) {
@@ -253,30 +275,29 @@
       }
     }
 
-    // 3. GPS Instrument
+    // 3. Navigation Instrument (SOG + Heading COG)
     if (cachedGps) {
       const hasFix = Boolean(cachedGps.fix);
       const sogKnots = parseFloat(cachedGps.sog_knots) || 0.0;
       const sogKmh = parseFloat(cachedGps.sog_kmh) || (sogKnots * 1.852);
       const cogTrue = cachedGps.cog_true !== null && cachedGps.cog_true !== undefined ? parseFloat(cachedGps.cog_true) : null;
-      const sats = parseInt(cachedGps.satellites, 10) || 0;
+      const sats = cachedGps.satellites !== undefined ? cachedGps.satellites : '--';
 
       if (homeValGpsSog) homeValGpsSog.textContent = sogKnots.toFixed(1);
       if (homeValGpsSogSub) homeValGpsSogSub.textContent = `${sogKmh.toFixed(1)} km/h`;
-      if (homeValGpsCog) homeValGpsCog.textContent = cogTrue !== null ? `${Math.round(cogTrue).toString().padStart(3, '0')}° T` : '---° T';
-      if (homeValGpsCardinal) homeValGpsCardinal.textContent = getCardinalDirection(cogTrue);
-      if (homeValGpsSats) homeValGpsSats.textContent = `${sats} sats`;
-      if (homeGpsFixBadge) {
-        homeGpsFixBadge.textContent = hasFix ? '3D FIX' : 'NO FIX';
-        homeGpsFixBadge.className = 'inst-badge ' + (hasFix ? 'teal-badge' : 'gray-badge');
+
+      if (homeValGpsCog) {
+        homeValGpsCog.textContent = cogTrue !== null ? `${Math.round(cogTrue)}°` : '---°';
       }
-      if (homeValGpsPos) {
-        const lat = cachedGps.latitude_nautical || "--° --.---' -";
-        const lon = cachedGps.longitude_nautical || "---° --.---' -";
-        homeValGpsPos.textContent = `${lat} | ${lon}`;
+      if (homeValGpsCardinal) {
+        homeValGpsCardinal.textContent = cogTrue !== null ? getCardinalDirection(cogTrue) : '--';
+      }
+      if (homeValGpsSats) {
+        homeValGpsSats.textContent = hasFix ? `3D Fix (${sats} sats)` : 'Searching...';
       }
     }
   }
+
 
   // ---------------- 72V Subsystem ----------------
   function update72vSubsystem(data) {
@@ -388,7 +409,7 @@
     // 20S Cell Bars
     renderCellBars(data.cell_voltages || []);
 
-    // Update Home
+    // Refresh Home Tab Instrument
     updateHomeTab();
   }
 
@@ -406,7 +427,10 @@
 
     if (cellMinEl) cellMinEl.textContent = `${minV.toFixed(3)}V`;
     if (cellMaxEl) cellMaxEl.textContent = `${maxV.toFixed(3)}V`;
-    if (cellDeltaEl) cellDeltaEl.textContent = `${deltaMv} mV`;
+    if (cellDeltaEl) {
+      cellDeltaEl.textContent = `${deltaMv} mV`;
+      cellDeltaEl.className = 'stat-num mono' + (deltaMv > 60 ? ' delta-warn' : '');
+    }
 
     if (!cellBarsContainer) return;
     cellBarsContainer.innerHTML = '';
@@ -415,28 +439,57 @@
     const baseMax = 4.2;
 
     cells.forEach((v, idx) => {
-      const barWrapper = document.createElement('div');
-      barWrapper.className = 'cell-bar-wrap';
+      const barCol = document.createElement('div');
+      barCol.className = 'cell-bar-column';
+
+      const barTrack = document.createElement('div');
+      barTrack.className = 'cell-bar-track';
 
       const barFill = document.createElement('div');
       barFill.className = 'cell-bar-fill';
-      const pct = Math.max(5, Math.min(100, ((v - baseMin) / (baseMax - baseMin)) * 100));
+      const pct = Math.max(3, Math.min(100, ((v - baseMin) / (baseMax - baseMin)) * 100));
       barFill.style.height = `${pct}%`;
 
-      if (v === minV && cells.length > 1) {
+      if (v === minV && cells.length > 1 && deltaMv > 30) {
         barFill.classList.add('lowest');
-      } else if (v === maxV && cells.length > 1) {
+      } else if (v === maxV && cells.length > 1 && deltaMv > 30) {
         barFill.classList.add('highest');
       }
+
+      barTrack.appendChild(barFill);
+
+      const valLbl = document.createElement('span');
+      valLbl.className = 'cell-val-lbl mono';
+      valLbl.textContent = v.toFixed(2);
 
       const numLbl = document.createElement('span');
       numLbl.className = 'cell-num-lbl mono';
       numLbl.textContent = `${idx + 1}`;
 
-      barWrapper.appendChild(barFill);
-      barWrapper.appendChild(numLbl);
-      barWrapper.title = `Cell ${idx + 1}: ${v.toFixed(3)} V`;
-      cellBarsContainer.appendChild(barWrapper);
+      barCol.appendChild(valLbl);
+      barCol.appendChild(barTrack);
+      barCol.appendChild(numLbl);
+      barCol.title = `Cell ${idx + 1}: ${v.toFixed(3)} V`;
+
+      const showDetail = () => {
+        if (cellHoverVal && cellHoverStat && cellHoverSep) {
+          cellHoverVal.textContent = `C${idx + 1}: ${v.toFixed(3)}V`;
+          cellHoverStat.style.display = 'inline-flex';
+          cellHoverSep.style.display = 'inline';
+        }
+      };
+      const hideDetail = () => {
+        if (cellHoverStat && cellHoverSep) {
+          cellHoverStat.style.display = 'none';
+          cellHoverSep.style.display = 'none';
+        }
+      };
+
+      barCol.addEventListener('mouseenter', showDetail);
+      barCol.addEventListener('mouseleave', hideDetail);
+      barCol.addEventListener('touchstart', showDetail, { passive: true });
+
+      cellBarsContainer.appendChild(barCol);
     });
   }
 
@@ -502,7 +555,7 @@
       val12vLoad.textContent = `${loadI.toFixed(2)} A (${loadW.toFixed(0)} W)`;
     }
 
-    // Update Home
+    // Refresh Home Tab Instrument
     updateHomeTab();
   }
 
@@ -566,7 +619,7 @@
       valGpsSentence.textContent = data.last_sentence ? `NMEA: $${data.last_sentence}` : 'NMEA: --';
     }
 
-    // Update Home
+    // Refresh Home Tab Instrument
     updateHomeTab();
   }
 
@@ -708,11 +761,39 @@
   }
   setSocMode(selectedSocMode);
 
-  // ---------------- WebSocket Connection ----------------
+  // ---------------- Server Endpoint Detection ----------------
+  function getServerHost() {
+    const saved = localStorage.getItem('paeraki_server_host');
+    if (saved && saved.trim()) return saved.trim();
+
+    // If running in Capacitor / native webview or file:// or localhost without port
+    const isNative = window.Capacitor !== undefined ||
+                     window.location.protocol === 'capacitor:' ||
+                     window.location.protocol === 'file:' ||
+                     (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '80' || window.location.port === '443'));
+
+    if (isNative) {
+      return '192.168.1.100:8080';
+    }
+    return window.location.host;
+  }
+
+  function getApiUrl(path) {
+    const host = getServerHost();
+    const cleanHost = host.replace(/^https?:\/\//, '');
+    const isHttps = (window.location.protocol === 'https:' && !host.includes('192.168.')) || host.startsWith('https://');
+    const protocol = isHttps ? 'https:' : 'http:';
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${protocol}//${cleanHost}${cleanPath}`;
+  }
+
   function getWsUrl(path = '/ws') {
-    const isHttps = window.location.protocol === 'https:';
+    const host = getServerHost();
+    const cleanHost = host.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '');
+    const isHttps = (window.location.protocol === 'https:' && !host.includes('192.168.')) || host.startsWith('https://') || host.startsWith('wss://');
     const protocol = isHttps ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}${path}`;
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${protocol}//${cleanHost}${cleanPath}`;
   }
 
   let socket = null;
@@ -801,7 +882,7 @@
 
     if (snap.server && snap.server.hostname) {
       const el = document.getElementById('server-host');
-      if (el) el.textContent = snap.server.hostname;
+      if (el) el.textContent = snap.server.hostname ? `${snap.server.hostname} (${getServerHost()})` : getServerHost();
     }
 
     if (snap.subsystems) {
@@ -811,38 +892,49 @@
     }
 
     // ---------------- Alarms Rendering ----------------
-    if (snap.alarms) {
-      const banner = document.getElementById('vessel-alarm-banner');
-      const msgEl = document.getElementById('vessel-alarm-msg');
-      const badgeEl = document.getElementById('vessel-alarm-badge');
-
-      if (banner && msgEl) {
-        if (snap.alarms.active_count > 0 && snap.alarms.active_alarms && snap.alarms.active_alarms.length > 0) {
-          const active = snap.alarms.active_alarms[0];
-          const isCritical = active.severity === 'CRITICAL';
-          banner.classList.remove('hidden');
-          banner.className = `alarm-banner ${isCritical ? 'critical' : 'warning'}`;
-          msgEl.textContent = (active.last_event && active.last_event.message) || active.description || 'Active vessel alarm';
-          if (badgeEl) {
-            badgeEl.textContent = active.severity;
-            badgeEl.className = `alarm-badge ${isCritical ? 'critical' : 'warning'}`;
-          }
-        } else {
-          banner.classList.add('hidden');
-        }
+    const alarmContainer = document.getElementById('vessel-alarm-container');
+    if (alarmContainer) {
+      if (snap.alarms && snap.alarms.active_count > 0 && snap.alarms.active_alarms && snap.alarms.active_alarms.length > 0) {
+        const active = snap.alarms.active_alarms[0];
+        const isCritical = active.severity === 'CRITICAL';
+        const msg = (active.last_event && active.last_event.message) || active.description || 'Active vessel alarm';
+        const badgeClass = isCritical ? 'critical' : 'warning';
+        alarmContainer.innerHTML = `
+          <div class="alarm-banner ${isCritical ? 'critical' : 'warning'}" role="alert">
+            <span class="alarm-icon">${isCritical ? '🚨' : '⚠️'}</span>
+            <span class="alarm-msg">${msg}</span>
+            <span class="alarm-badge ${badgeClass}">${active.severity}</span>
+          </div>
+        `;
+      } else {
+        alarmContainer.innerHTML = '';
       }
     }
   }
 
-  // Start WebSocket
-  connectWebSocket();
-
-  // Register Service Worker for PWA
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/static/sw.js')
-        .then(reg => console.log('[PWA] ServiceWorker registered with scope:', reg.scope))
-        .catch(err => console.log('[PWA] ServiceWorker registration failed:', err));
+  // Server Host Click to configure
+  const serverHostEl = document.getElementById('server-host');
+  if (serverHostEl) {
+    serverHostEl.addEventListener('click', () => {
+      const current = getServerHost();
+      const newHost = prompt('Enter Paeraki Dashboard Server (host:port):', current);
+      if (newHost && newHost.trim()) {
+        localStorage.setItem('paeraki_server_host', newHost.trim());
+        window.location.reload();
+      }
     });
   }
+
+  // Initial HTTP snapshot fetch for instant load
+  fetch(getApiUrl('/api/state'))
+    .then(r => r.json())
+    .then(snapshot => {
+      if (snapshot) handleSnapshot(snapshot);
+    })
+    .catch(err => console.warn('[Paeraki Monitor] Initial state fetch failed:', err))
+    .finally(() => {
+      connectWebSocket();
+    });
+
+  // End of initialization
 })();

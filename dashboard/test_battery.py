@@ -269,6 +269,40 @@ def test_alarm_engine_and_low_12v_rule():
     assert engine.get_status()["overall_status"] == "OK"
 
 
+def test_low_72v_battery_rule_and_voltage_guard():
+    from alarms.rules import AlarmEngine, Low72VBatteryRule, AlarmState
+
+    rule = Low72VBatteryRule(debounce_sec=0.0)
+    engine = AlarmEngine([rule])
+
+    # 1. Normal state (80.7V, RSOC 8% bug -> voltage guard suppresses false alarm)
+    engine.update_telemetry("72v", {"total_voltage": 80.7, "rsoc": 8.0})
+    events = engine.evaluate()
+    assert len(events) == 0, f"Expected 0 events due to 80.7V voltage guard, got {events}"
+    assert rule.state == AlarmState.OK
+
+    # 2. Genuine low battery (68.0V < 72.0V, RSOC 15.0%)
+    engine.update_telemetry("72v", {"total_voltage": 68.0, "rsoc": 15.0})
+    events = engine.evaluate()
+    assert len(events) == 1
+    assert events[0].rule_name == "low_72v_propulsion_battery"
+    assert events[0].severity == "WARNING"
+    assert rule.state == AlarmState.ALARM
+
+    # 3. Genuine critical drop (65.0V, RSOC 8.0%)
+    engine.update_telemetry("72v", {"total_voltage": 65.0, "rsoc": 8.0})
+    events = engine.evaluate()
+    assert len(events) == 1
+    assert events[0].severity == "CRITICAL"
+
+    # 4. Recovery via charge (76.0V, RSOC 30.0%)
+    engine.update_telemetry("72v", {"total_voltage": 76.0, "rsoc": 30.0})
+    events = engine.evaluate()
+    assert len(events) == 1
+    assert events[0].state == "OK"
+    assert rule.state == AlarmState.OK
+
+
 if __name__ == "__main__":
     test_calculate_voltage_soc_nominal()
     print("✓ test_calculate_voltage_soc_nominal passed")
@@ -288,4 +322,6 @@ if __name__ == "__main__":
     print("✓ test_dynamic_capacity_and_soh_mqtt passed")
     test_alarm_engine_and_low_12v_rule()
     print("✓ test_alarm_engine_and_low_12v_rule passed")
-    print("\nAll 9 battery, capacity, dashboard, and alarm unit tests PASSED successfully!")
+    test_low_72v_battery_rule_and_voltage_guard()
+    print("✓ test_low_72v_battery_rule_and_voltage_guard passed")
+    print("\nAll 10 battery, capacity, dashboard, and alarm unit tests PASSED successfully!")

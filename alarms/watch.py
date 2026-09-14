@@ -88,15 +88,23 @@ async def run_alarm_monitor(
 
                 # Background evaluation task
                 async def eval_loop():
+                    last_status_publish = 0.0
                     while not shutdown_event.is_set():
                         try:
                             await asyncio.wait_for(shutdown_event.wait(), timeout=eval_interval)
                         except asyncio.TimeoutError:
                             events = engine.evaluate()
                             status = engine.get_status()
+                            now = asyncio.get_event_loop().time()
                             for ev in events:
                                 for d in dispatchers:
                                     await d.dispatch(ev, status)
+                                last_status_publish = now
+
+                            # Periodic status heartbeat every 5s even when no state transitions
+                            if (now - last_status_publish) >= 5.0:
+                                await mqtt_disp.publish_status(status)
+                                last_status_publish = now
 
                 eval_task = asyncio.create_task(eval_loop())
 

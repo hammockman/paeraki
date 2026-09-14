@@ -11,11 +11,9 @@ export DISPLAY="${DISPLAY:-:0}"
 AVD_NAME="paeraki_phone"
 APK_PATH="$ROOT_DIR/dist/paeraki-monitor.apk"
 
-# Check if APK exists
-if [ ! -f "$APK_PATH" ]; then
-    echo "==> APK not found, building first..."
-    bash "$DIR/build_apk.sh"
-fi
+# Always rebuild the APK to ensure latest dashboard assets are bundled (takes ~1s)
+echo "==> Building latest APK from dashboard assets..."
+bash "$DIR/build_apk.sh"
 
 # 1. Check if emulator is already running
 if ! adb get-state 2>/dev/null | grep -q "device"; then
@@ -38,7 +36,11 @@ fi
 echo "==> Installing $APK_PATH..."
 adb install -r "$APK_PATH"
 
-# 3. Launch Paeraki MainActivity
+# 3. Clear stale WebView cache to ensure fresh asset loading
+echo "==> Clearing WebView cache..."
+adb shell pm clear nz.alientech.paeraki >/dev/null 2>&1 || true
+
+# 4. Launch Paeraki MainActivity
 echo "==> Launching Paeraki Monitor..."
 adb shell am start -n nz.alientech.paeraki/.MainActivity
 

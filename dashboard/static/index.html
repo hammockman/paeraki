@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=20260914_07">
 </head>
 <body>
   <div class="app-container">
@@ -35,9 +35,8 @@
 
       <!-- Controls: High Contrast Button + Status Indicator -->
       <div class="top-controls">
-        <button class="contrast-toggle-btn" id="btn-contrast-toggle" title="Toggle High-Contrast Mode for bright sunlight" aria-label="Toggle High-Contrast Mode">
-          <span class="contrast-icon">☀️</span>
-          <span class="contrast-text desktop-only">SUNLIGHT</span>
+        <button class="theme-toggle-btn" id="btn-contrast-toggle" title="Toggle Daylight / Sunlight Theme" aria-label="Toggle Daylight Theme">
+          <span class="theme-icon" id="theme-icon">☀️</span>
         </button>
 
         <div class="status-indicator top-status">
@@ -72,12 +71,8 @@
 
     <!-- Tab Panels Container -->
     <main class="panels-container">
-      <!-- Global Vessel Alarm Banner (hidden by default) -->
-      <div class="alarm-banner hidden" id="vessel-alarm-banner" role="alert">
-        <span class="alarm-icon">⚠️</span>
-        <span class="alarm-msg" id="vessel-alarm-msg">ALARM: No active alerts</span>
-        <span class="alarm-badge" id="vessel-alarm-badge">WARNING</span>
-      </div>
+      <!-- Dynamic Vessel Alarm Container (populated ONLY when active alarms exist) -->
+      <div id="vessel-alarm-container"></div>
       
       <!-- ================= TAB 0: HOME / PRIMARY INSTRUMENTS ================= -->
       <section class="tab-panel active" id="tab-panel-home">
@@ -85,115 +80,90 @@
           <div class="panel-header">
             <div class="card-title-group">
               <span class="sys-badge cyan-badge">PRIMARY INSTRUMENTS</span>
-              <h2>Vessel Essentials</h2>
+              <h2>Vessel Overview</h2>
             </div>
             <div class="home-vessel-meta">
               <span class="card-badge green-badge" id="home-status-badge">ONLINE</span>
             </div>
           </div>
 
-          <!-- Home Grid: 3 Vital Instruments -->
-          <div class="home-instruments-grid">
-            
-            <!-- Instrument 1: 72V Propulsion SoC -->
-            <div class="home-inst-card inst-72v" id="home-card-72v" title="72V Propulsion System">
-              <div class="inst-header">
-                <span class="inst-label">72V PROPULSION</span>
-                <span class="inst-badge cyan-badge" id="home-72v-mode-badge">INTEGRATED</span>
+          <!-- Home Compact Layout: Row 1 Trio (Power, Speed, Heading), Row 2 (72V SoC), Row 3 (12V SoC) -->
+          <div class="home-compact-container">
+
+            <!-- ROW 1: Navigation & Power Trio -->
+            <div class="home-trio-row">
+              <!-- Item 1: Propulsion Power (click to jump to 72v tab) -->
+              <div class="home-trio-card clickable-card" id="home-card-power" title="Click to view 72V Propulsion details">
+                <span class="home-trio-label">PROPULSION</span>
+                <div class="home-trio-val-group">
+                  <span class="home-trio-val mono glow-teal" id="home-val-72v-w">--</span>
+                  <span class="home-trio-unit">W</span>
+                </div>
+                <span class="home-trio-sub mono" id="home-val-72v-sub">--.- V · --.- A</span>
               </div>
-              <div class="inst-gauge-wrap">
-                <svg class="home-gauge-svg" viewBox="0 0 120 120">
-                  <circle class="gauge-bg" cx="60" cy="60" r="50"></circle>
-                  <circle class="gauge-fill" id="home-72v-gauge-fill" cx="60" cy="60" r="50"></circle>
-                </svg>
-                <div class="home-gauge-center">
-                  <span class="home-gauge-val mono" id="home-val-72v-soc">--</span>
-                  <span class="home-gauge-unit">% SoC</span>
+
+              <!-- Item 2: Speed SOG (click to jump to GPS tab) -->
+              <div class="home-trio-card clickable-card" id="home-card-speed" title="Click to view GPS Navigation details">
+                <span class="home-trio-label">SPEED (SOG)</span>
+                <div class="home-trio-val-group">
+                  <span class="home-trio-val mono glow-teal" id="home-val-gps-sog">--.-</span>
+                  <span class="home-trio-unit">kn</span>
                 </div>
+                <span class="home-trio-sub mono" id="home-val-gps-sog-sub">--.- km/h</span>
               </div>
-              <div class="inst-stats-row">
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">PACK</span>
-                  <span class="inst-stat-val mono" id="home-val-72v-v">--.- V</span>
+
+              <!-- Item 3: Heading COG (click to jump to GPS tab) -->
+              <div class="home-trio-card clickable-card" id="home-card-heading" title="Click to view GPS Navigation details">
+                <span class="home-trio-label">HEADING (COG)</span>
+                <div class="home-trio-val-group">
+                  <span class="home-trio-val mono" id="home-val-gps-cog">---°</span>
+                  <span class="home-cardinal-badge mono" id="home-val-gps-cardinal">--</span>
                 </div>
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">CURRENT</span>
-                  <span class="inst-stat-val mono" id="home-val-72v-a">--.- A</span>
-                </div>
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">POWER</span>
-                  <span class="inst-stat-val mono" id="home-val-72v-w">-- W</span>
-                </div>
-              </div>
-              <div class="inst-sub-footer">
-                <span id="home-val-72v-cap" class="mono">-- / -- Ah</span>
+                <span class="home-trio-sub mono" id="home-val-gps-sats">-- sats</span>
               </div>
             </div>
 
-            <!-- Instrument 2: 12V House AGM SoC -->
-            <div class="home-inst-card inst-12v" id="home-card-12v" title="12V House Battery & Solar">
-              <div class="inst-header">
-                <span class="inst-label">12V HOUSE (AGM)</span>
-                <span class="inst-badge amber-badge" id="home-12v-status-badge">ACTIVE</span>
-              </div>
-              <div class="inst-gauge-wrap">
-                <svg class="home-gauge-svg" viewBox="0 0 120 120">
-                  <circle class="gauge-bg" cx="60" cy="60" r="50"></circle>
-                  <circle class="gauge-fill fill-amber" id="home-12v-gauge-fill" cx="60" cy="60" r="50"></circle>
-                </svg>
-                <div class="home-gauge-center">
-                  <span class="home-gauge-val mono" id="home-val-12v-soc">--</span>
-                  <span class="home-gauge-unit">% SoC</span>
+            <!-- ROW 2: 72V Propulsion Battery SoC with Horizontal Bar -->
+            <div class="home-soc-card clickable-card" id="home-card-72v" title="Click to view 72V Propulsion details">
+              <div class="home-soc-header">
+                <div class="home-soc-title-wrap">
+                  <span class="home-soc-title">72V PROPULSION</span>
+                  <span class="inst-badge cyan-badge" id="home-72v-mode-badge">INTEGRATED</span>
+                </div>
+                <div class="home-soc-readout">
+                  <span class="home-soc-pct mono glow-cyan" id="home-val-72v-soc">--.-%</span>
                 </div>
               </div>
-              <div class="inst-stats-row">
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">BATTERY</span>
-                  <span class="inst-stat-val mono" id="home-val-12v-v">--.- V</span>
-                </div>
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">SOLAR</span>
-                  <span class="inst-stat-val mono glow-amber" id="home-val-12v-solar">-- W</span>
-                </div>
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">NET FLUX</span>
-                  <span class="inst-stat-val mono" id="home-val-12v-net">--.- A</span>
-                </div>
+
+              <div class="home-bar-track">
+                <div class="home-bar-fill fill-cyan" id="home-72v-bar-fill" style="width: 0%;"></div>
               </div>
-              <div class="inst-sub-footer">
-                <span id="home-val-12v-cap" class="mono">-- / 100 Ah</span>
+
+              <div class="home-soc-footer">
+                <span class="home-soc-meta mono" id="home-val-72v-cap">-- / -- Ah</span>
+                <span class="home-soc-meta mono" id="home-val-72v-meta">--.- V · --% SoH</span>
               </div>
             </div>
 
-            <!-- Instrument 3: GPS Speed Over Ground -->
-            <div class="home-inst-card inst-gps" id="home-card-gps" title="GPS Speed & Course">
-              <div class="inst-header">
-                <span class="inst-label">NAVIGATION</span>
-                <span class="inst-badge teal-badge" id="home-gps-fix-badge">NO FIX</span>
-              </div>
-              <div class="home-sog-hero-wrap">
-                <div class="sog-big-number">
-                  <span class="sog-val mono glow-teal" id="home-val-gps-sog">--.-</span>
-                  <span class="sog-unit">KTS</span>
+            <!-- ROW 3: 12V House Battery (AGM) SoC with Horizontal Bar -->
+            <div class="home-soc-card clickable-card" id="home-card-12v" title="Click to view 12V House details">
+              <div class="home-soc-header">
+                <div class="home-soc-title-wrap">
+                  <span class="home-soc-title">12V HOUSE (AGM)</span>
+                  <span class="inst-badge amber-badge" id="home-12v-status-badge">FLOAT</span>
                 </div>
-                <div class="sog-sub-row mono" id="home-val-gps-sog-sub">--.- km/h</div>
-              </div>
-              <div class="inst-stats-row">
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">COURSE</span>
-                  <span class="inst-stat-val mono" id="home-val-gps-cog">---° T</span>
-                </div>
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">HEADING</span>
-                  <span class="inst-stat-val mono" id="home-val-gps-cardinal">--</span>
-                </div>
-                <div class="inst-stat">
-                  <span class="inst-stat-lbl">SATELLITES</span>
-                  <span class="inst-stat-val mono" id="home-val-gps-sats">-- sats</span>
+                <div class="home-soc-readout">
+                  <span class="home-soc-pct mono glow-amber" id="home-val-12v-soc">--%</span>
                 </div>
               </div>
-              <div class="inst-sub-footer">
-                <span id="home-val-gps-pos" class="mono">--° --.---' - | ---° --.---' -</span>
+
+              <div class="home-bar-track">
+                <div class="home-bar-fill fill-amber" id="home-12v-bar-fill" style="width: 0%;"></div>
+              </div>
+
+              <div class="home-soc-footer">
+                <span class="home-soc-meta mono" id="home-val-12v-cap">-- / 100 Ah</span>
+                <span class="home-soc-meta mono" id="home-val-12v-sub">--.- V · Net --.- A</span>
               </div>
             </div>
 
@@ -273,18 +243,45 @@
             </button>
           </div>
 
-          <!-- Cell Balance (20S Adjacent Vertical Bars) -->
+          <!-- Cell Balance (20S Adjacent Vertical Bars with Y-Axis) -->
           <div class="cell-spectrum-section">
             <div class="spectrum-header">
-              <span class="spectrum-title">Cell Balance (<span id="cell-count-label">20S</span>)</span>
+              <span class="spectrum-title">Cell Balance <span class="cell-count-tag mono" id="cell-count-label">20S</span></span>
               <div class="cell-stats">
-                <span class="cell-stat-item">Min: <strong class="mono" id="cell-min">-.---V</strong></span>
-                <span class="cell-stat-item">Max: <strong class="mono" id="cell-max">-.---V</strong></span>
-                <span class="cell-stat-item">Δ: <strong class="mono" id="cell-delta">-- mV</strong></span>
+                <span class="cell-stat"><span class="stat-tag">min</span><span class="stat-num mono" id="cell-min">-.---V</span></span>
+                <span class="stat-sep">·</span>
+                <span class="cell-stat"><span class="stat-tag">max</span><span class="stat-num mono" id="cell-max">-.---V</span></span>
+                <span class="stat-sep">·</span>
+                <span class="cell-stat" id="cell-delta-stat"><span class="stat-tag">Δ</span><span class="stat-num mono" id="cell-delta">-- mV</span></span>
+                <span class="stat-sep" id="cell-hover-sep" style="display: none;">·</span>
+                <span class="cell-stat" id="cell-hover-stat" style="display: none;"><span class="stat-num mono glow-cyan" id="cell-hover-val"></span></span>
               </div>
             </div>
-            <div class="cell-bars-container" id="cell-bars-container">
-              <div class="cell-bar-placeholder">Waiting for cell telemetry...</div>
+            
+            <div class="cell-chart-area">
+              <!-- Y-Axis Labels -->
+              <div class="cell-y-axis" aria-hidden="true">
+                <span class="y-label mono">4.2V</span>
+                <span class="y-label mono">3.8V</span>
+                <span class="y-label mono">3.4V</span>
+                <span class="y-label mono">3.0V</span>
+              </div>
+
+              <!-- Plot Container -->
+              <div class="cell-plot-wrap">
+                <!-- Background Gridlines -->
+                <div class="cell-gridlines" aria-hidden="true">
+                  <div class="grid-line" style="top: 0%;"></div>
+                  <div class="grid-line" style="top: 33.33%;"></div>
+                  <div class="grid-line" style="top: 66.67%;"></div>
+                  <div class="grid-line" style="top: 100%;"></div>
+                </div>
+
+                <!-- 20S Cell Bars Container (spans full width) -->
+                <div class="cell-bars-container" id="cell-bars-container">
+                  <div class="cell-bar-placeholder">Waiting for cell telemetry...</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -553,47 +550,6 @@
             </div>
           </div>
 
-          <!-- 72V SoC Estimation Method Comparison Cards -->
-          <div class="soc-methods-section">
-            <span class="explorer-title">72V State of Charge (SoC) Model Selector</span>
-            <div class="soc-method-cards-grid">
-              <!-- Integrated Card -->
-              <div class="soc-method-card active" id="card-soc-integrated" data-mode="integrated" title="Click to use continuous Coulomb counting">
-                <div class="soc-card-top">
-                  <span class="soc-method-name">INTEGRATED</span>
-                  <span class="soc-badge-pill active-pill" id="badge-integrated-status">ACTIVE</span>
-                </div>
-                <div class="soc-card-val-row">
-                  <span class="soc-big-val mono" id="val-soc-integrated">--%</span>
-                </div>
-                <div class="soc-card-sub mono" id="val-soc-integrated-sub">-- / -- Ah</div>
-              </div>
-
-              <!-- Voltage Card -->
-              <div class="soc-method-card" id="card-soc-voltage" data-mode="voltage" title="Click to use 20S NMC Open Circuit Voltage (OCV) table">
-                <div class="soc-card-top">
-                  <span class="soc-method-name">VOLTAGE OCV</span>
-                  <span class="soc-badge-pill" id="badge-voltage-status">PASSIVE</span>
-                </div>
-                <div class="soc-card-val-row">
-                  <span class="soc-big-val mono" id="val-soc-voltage">--%</span>
-                </div>
-                <div class="soc-card-sub mono" id="val-soc-voltage-sub">--.- V</div>
-              </div>
-
-              <!-- BMS Card -->
-              <div class="soc-method-card" id="card-soc-bms" data-mode="bms" title="Click to use hardware BMS register">
-                <div class="soc-card-top">
-                  <span class="soc-method-name">BMS</span>
-                  <span class="soc-badge-pill" id="badge-bms-status">HARDWARE</span>
-                </div>
-                <div class="soc-card-val-row">
-                  <span class="soc-big-val mono" id="val-soc-bms">--%</span>
-                </div>
-                <div class="soc-card-sub mono" id="val-soc-bms-sub">-- / -- Ah</div>
-              </div>
-            </div>
-          </div>
 
           <!-- App Actions & Download -->
           <div class="misc-actions-row">
@@ -662,6 +618,6 @@
     </nav>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260914_07"></script>
 </body>
 </html>

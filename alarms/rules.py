@@ -11,7 +11,17 @@ import enum
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+# Ensure project root is in sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+import sys
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from dashboard.battery import calculate_voltage_soc
+from dashboard.battery_12v import calculate_agm_voltage_soc
 
 logger = logging.getLogger("paeraki.alarms.rules")
 
@@ -210,29 +220,43 @@ class Low12VCapacityRule(AlarmRule):
 
     def _extract_12v_metrics(self, snapshot: dict[str, Any]) -> tuple[float | None, float | None]:
         sys_12v = snapshot.get("12v", {})
+        v = sys_12v.get("battery_voltage")
+        try:
+            v_f = float(v) if v is not None else None
+        except (ValueError, TypeError):
+            v_f = None
+
         soc = sys_12v.get("soc_12v_active")
         if soc is None:
             soc = sys_12v.get("soc_12v_integrated")
         if soc is None:
             soc = sys_12v.get("soc_12v_voltage")
+        if soc is None and v_f is not None:
+            soc = calculate_agm_voltage_soc(v_f)
         if soc is None:
             soc = sys_12v.get("battery_soc")
 
-        v = sys_12v.get("battery_voltage")
         try:
             soc_f = float(soc) if soc is not None else None
         except (ValueError, TypeError):
             soc_f = None
-        try:
-            v_f = float(v) if v is not None else None
-        except (ValueError, TypeError):
-            v_f = None
+
+        # Cross-validation with voltage: 12.30V on AGM is ~65-70% SoC.
+        if v_f is not None and v_f >= 12.30 and (soc_f is None or soc_f <= self.soc_threshold):
+            v_soc = calculate_agm_voltage_soc(v_f)
+            if v_soc is not None:
+                soc_f = v_soc
+
         return soc_f, v_f
 
     def evaluate_condition(self, snapshot: dict[str, Any]) -> tuple[bool, AlarmSeverity, str, dict[str, Any]]:
         soc, v = self._extract_12v_metrics(snapshot)
         if soc is None and v is None:
             return False, AlarmSeverity.WARNING, "", {}
+
+        # Voltage guard: 12.30V AGM is healthy. Do not alarm if voltage >= 12.30V.
+        if v is not None and v >= 12.30:
+            return False, AlarmSeverity.WARNING, "", {"soc": soc, "voltage": v}
 
         # 50% AGM resting OCV is ~12.15V
         is_low_soc = soc is not None and soc <= self.soc_threshold
@@ -288,27 +312,44 @@ class Low72VBatteryRule(AlarmRule):
 
     def _extract_72v_metrics(self, snapshot: dict[str, Any]) -> tuple[float | None, float | None]:
         sys_72v = snapshot.get("72v", {})
-        soc = sys_72v.get("soc_integrated")
-        if soc is None:
-            soc = sys_72v.get("soc_voltage")
-        if soc is None:
-            soc = sys_72v.get("rsoc")
-
         v = sys_72v.get("total_voltage")
-        try:
-            soc_f = float(soc) if soc is not None else None
-        except (ValueError, TypeError):
-            soc_f = None
         try:
             v_f = float(v) if v is not None else None
         except (ValueError, TypeError):
             v_f = None
+
+        soc = sys_72v.get("soc_integrated")
+        if soc is None:
+            soc = sys_72v.get("soc_voltage")
+        if soc is None and v_f is not None:
+            soc = calculate_voltage_soc(v_f)
+        if soc is None:
+            soc = sys_72v.get("rsoc")
+
+        try:
+            soc_f = float(soc) if soc is not None else None
+        except (ValueError, TypeError):
+            soc_f = None
+
+        # Cross-validation with pack voltage:
+        # If terminal voltage is healthy (>= 72.0V, ~3.60V/cell on 20S NMC),
+        # an uncalibrated JBD BMS RSOC reporting <= 20% is spurious.
+        if v_f is not None and v_f >= 72.0 and (soc_f is None or soc_f <= self.soc_threshold):
+            v_soc = calculate_voltage_soc(v_f)
+            if v_soc is not None:
+                soc_f = v_soc
+
         return soc_f, v_f
 
     def evaluate_condition(self, snapshot: dict[str, Any]) -> tuple[bool, AlarmSeverity, str, dict[str, Any]]:
         soc, v = self._extract_72v_metrics(snapshot)
         if soc is None:
             return False, AlarmSeverity.WARNING, "", {}
+
+        # Voltage guard: 72.0V on a 20S NMC pack corresponds to ~3.60V/cell (healthy reserve).
+        # Never trigger low battery alarm if pack voltage is >= 72.0V.
+        if v is not None and v >= 72.0:
+            return False, AlarmSeverity.WARNING, "", {"soc": soc, "voltage": v}
 
         if soc <= self.soc_threshold:
             severity = AlarmSeverity.CRITICAL if soc <= self.critical_threshold else AlarmSeverity.WARNING
@@ -320,9 +361,12 @@ class Low72VBatteryRule(AlarmRule):
 
     def evaluate_recovery(self, snapshot: dict[str, Any]) -> tuple[bool, str]:
         soc, v = self._extract_72v_metrics(snapshot)
-        if soc is not None and soc >= self.recovery_threshold:
+        recovered_soc = soc is not None and soc >= self.recovery_threshold
+        recovered_v = v is not None and v >= 73.5  # ~3.68V/cell
+        if recovered_soc or recovered_v:
             v_str = f"{v:.1f}V" if v is not None else "--.-V"
-            return True, f"72V Propulsion Battery charged to {soc:.1f}% ({v_str})"
+            soc_str = f"{soc:.1f}%" if soc is not None else "--.-%"
+            return True, f"72V Propulsion Battery recovered to {soc_str} ({v_str})"
         return False, ""
 
 

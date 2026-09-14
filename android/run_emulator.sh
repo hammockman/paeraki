@@ -6,5 +6,6 @@ export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
 AVD_NAME="paeraki_phone"
 
 echo "==> Starting Android Virtual Device ($AVD_NAME)..."
+echo "    Tip: To build, install, and launch the latest Paeraki app, run: ./android/run_app.sh"
 echo "    Press Ctrl+C to close or run adb commands in another terminal."
 "$ANDROID_HOME/emulator/emulator" -avd "$AVD_NAME" -gpu host "$@"

@@ -59,6 +59,18 @@ class MqttDispatcher(BaseDispatcher):
             logger.error("Failed to publish alarm to MQTT: %s", e)
             return False
 
+    async def publish_status(self, consolidated_status: dict[str, Any]) -> bool:
+        if not self.mqtt_client:
+            return False
+        try:
+            state_topic = "paeraki/alarms/state"
+            state_payload = json.dumps(consolidated_status)
+            await self.mqtt_client.publish(state_topic, payload=state_payload, retain=True)
+            return True
+        except Exception as e:
+            logger.error("Failed to publish alarm status to MQTT: %s", e)
+            return False
+
 
 class SmsDispatcher(BaseDispatcher):
     """
