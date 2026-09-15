@@ -690,7 +690,7 @@ class DashboardState:
             return
         payload = json.dumps(message)
         dead = []
-        for ws in self.ws_clients:
+        for ws in list(self.ws_clients):
             try:
                 await ws.send_text(payload)
             except Exception:
