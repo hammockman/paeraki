@@ -1,0 +1,16 @@
+[Unit]
+Description=Paeraki SeaTalkNG & NMEA 2000 Telemetry Service
+After=network.target NetworkManager.service mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jh
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/seatalkng/service.py --broker-host 192.168.1.1 --broker-port 1883
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
