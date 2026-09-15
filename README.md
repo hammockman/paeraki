@@ -8,8 +8,18 @@ graph TD
         SRNE[12V Solar Controller] -->|BLE Modbus| Look[look 192.168.1.100 / .101]
         JBDBMS[72V JBD BMS] -->|BLE GATT| Look
         RUTGPS[Teltonika RUT955 GPS] -->|NMEA TCP :8500| LookGPS[watch_gps.service on look]
+
+        subgraph SeaTalkNG [SeaTalkNG / NMEA 2000 Backbone]
+            EV1[Raymarine EV-1 0xCC\nHeading, Attitude & ROT] -->|CAN 250k| CAN115[PUSR USR-CAN115\n192.168.174.10]
+            Cortex[Vesper Cortex 0x16\nGNSS, AIS & Barometer] -->|CAN 250k| CAN115
+            ACU[Raymarine ACU / p70 0x00\nAutopilot Mode & Rudder] -->|CAN 250k| CAN115
+        end
+
+        CAN115 -->|TCP :8234 eth0| LookSTNG[paeraki_seatalkng.service on look]
+
         LookGPS -->|Publish paeraki/gps/state, gps/*| RUTBroker[Teltonika RUT955 Broker 192.168.1.1:1883]
         Look -->|Publish 12v/*, 72v/*| RUTBroker
+        LookSTNG -->|Publish paeraki/seatalkng/*| RUTBroker
         RUTBroker -->|Subscribe #| LookDashboard[Onboard Dashboard :8080]
     end
 
@@ -32,25 +42,38 @@ graph TD
 A real-time web dashboard running on **`look`** (`192.168.1.100:8080` / `192.168.1.101:8080`) built with FastAPI, WebSockets, and a responsive nautical dark UI.
 
 ### Key Capabilities
-- **Navigation & Vessel Position (RUT955 GPS)**:
-  - Speed Over Ground (SOG) in knots (primary) with km/h and m/s velocity conversions.
-  - Course Over Ground (COG) in degrees True with cardinal heading orientation.
-  - Nautical coordinates (`dd° mm.mmm' S/E`) and decimal latitude/longitude.
-  - Active satellite count, horizontal dilution of precision (HDOP), altitude (m), and 3D GNSS fix status.
-  - Quick OpenStreetMap link to view current yacht location in any charting tool.
+- **Navigation & Dual GPS Sources (SeaTalkNG & RUT955)**:
+  - Selectable GNSS receiver: **SeaTalkNG (Vesper Cortex)**, **Router (RUT955)**, or **Both (Side-by-Side Comparison)**.
+  - High-precision 10 Hz Cortex navigation with 15+ satellites, sub-meter HDOP (0.49), and centimeter geodetic altitude.
+  - SOG in knots (primary), km/h, and m/s velocity conversions; COG in degrees True with cardinal orientation.
+  - Dual-receiver comparison table calculating geodetic displacement $\Delta\text{ meters}$ between antenna locations.
+  - Nautical coordinates (`dd° mm.mmm' S/E`), decimal coordinates, and direct OpenStreetMap charting links.
+- **SeaTalkNG Vessel Dynamics & Heading (Raymarine EV-1)**:
+  - 10 Hz Raymarine fluxgate compass: Magnetic Heading, True Heading, and local magnetic variation (`24.9° E`).
+  - Rate of Turn (°/s) and dynamic rudder position angle.
+  - Dynamic horizontal level meters for **Pitch** (-15° to +15° bow down/up) and **Roll** (-30° to +30° port/stbd list) with center-zero lines.
+  - Real-time Raymarine autopilot status badge (`AUTO TRACK`, `WIND`, `STANDBY`).
+- **AIS Traffic Directory & Transponder Status (Vesper Cortex)**:
+  - Paeraki transponder health card: Vesper Cortex Class B SOTDMA status (`ONLINE • SOTDMA`, `Transmitting & Receiving`), active target count, and range to closest vessel.
+  - Vessel directory sorted by distance from Paeraki (**closest first**) with geodetic range (NM) and initial bearing (° True).
+  - High-visibility amber badges (`UNKNOWN VESSEL`) and left-accented borders for vessels without a broadcasted name.
+  - Target filtering pills: `All (N)`, `Unknown (N)`, and `Named (N)`.
+- **Atmospheric Barometer (Misc Tab)**:
+  - Clean atmospheric pressure display in **`hPa` only** (e.g. `1012.9 hPa`) from the Vesper Cortex solid-state sensor (`PGN 130314`).
+  - Barometric pressure tendency indicator (`STEADY`, `RISING`, `FALLING`).
 - **72V Propulsion Battery (JBD BMS)**:
-  - Radial animated State of Charge (SoC %) gauge with Tri-Method comparison (Integrated Coulomb counter, Voltage OCV curve, BMS reported).
+  - Compact horizontal State of Charge (SoC %) bar with Tri-Method comparison (Integrated Coulomb counter, Voltage OCV curve, BMS reported).
   - Pack voltage (V), current (A, dynamic charging/discharging mode), and net power (W/kW).
   - Cycle count, residual capacity (Ah), MOSFET switches (CHG/DSG), and temperatures.
   - **20-Cell Voltage Spectrum Visualizer**: Dynamic bar graph displaying all 20 individual cell voltages with min, max, and delta (mV) metrics.
 - **12V House & Solar System (SRNE/Renogy)**:
-  - House battery voltage with capacity progress indicator.
+  - House battery voltage with horizontal progress indicator.
   - Solar PV generation power (W), PV voltage, and current.
   - Charge controller state (`MPPT Bulk Charging`, `Float`) and daily yield (kWh).
   - Live Modbus register explorer displaying all incoming 12V keys.
 - **Live MQTT Stream Inspector**:
   - Auto-scrolling filterable log table displaying incoming vessel packets across topic `#`.
-  - Quick filters for **All**, **72V**, **12V**, **GPS**, and **Other**.
+  - Quick filters for **All**, **72V**, **12V**, **GPS**, **SeaTalkNG**, and **Other**.
   - Pause auto-scroll and clear buffer controls.
 
 ### Accessing the Dashboard
@@ -84,11 +107,13 @@ A lightweight, non-blocking telemetry logger that captures every MQTT packet com
 
 ### Database Architecture
 - **Engine**: SQLite configured with **Write-Ahead Logging (WAL)** mode (`PRAGMA journal_mode = WAL;`) and non-blocking read transactions. This allows continuous streaming inserts while Python, R, or Julia run analytical queries simultaneously without lock contention.
-- **Dual-Layer Schema**:
-  1. **`packets` table**: Verbatim archive of all raw messages (`id`, `timestamp`, `epoch_ms`, `topic`, `payload`, `is_json`).
-  2. **`telemetry_72v` table**: Structured tabular data (`total_voltage`, `current`, `power`, `rsoc`, `cell_min_v`, `cell_max_v`, `cell_delta_mv`, `cell_voltages_json`, etc.).
-  3. **`telemetry_12v` table**: Structured tabular data (`battery_voltage`, `battery_soc`, `solar_power`, `solar_voltage`, `solar_current`, `daily_yield_kwh`, `charging_status`).
-  4. **Views**: `v_recent_72v`, `v_recent_12v`, `v_recent_packets`.
+- **Multi-Layer Schema**:
+  1. **`packets` table**: Verbatim archive of all raw messages (`id`, `timestamp`, `epoch_ms`, `topic`, `payload`, `is_json`), including all individual SeaTalkNG PGN frames.
+  2. **`telemetry_seatalkng` table**: High-rate navigation, EV-1 attitude, heading, and barometer (`heading_deg`, `heading_ref`, `variation_deg`, `pitch_deg`, `roll_deg`, `yaw_deg`, `rate_of_turn_dps`, `rudder_deg`, `pressure_hpa`, `pilot_mode`, `latitude`, `longitude`, `sog_knots`, `cog_true`, `satellites`, `hdop`, `altitude_m`, `ais_target_count`).
+  3. **`telemetry_ais` table**: Real-time directory of all AIS vessels in VHF range (`mmsi`, `vessel_name`, `call_sign`, `ship_type`, `ais_class`, `latitude`, `longitude`, `sog_knots`, `cog_true`, `true_heading`, `nav_status`, `range_nm`, `bearing_deg`).
+  4. **`telemetry_72v` table**: Structured propulsion data (`total_voltage`, `current`, `power`, `rsoc`, `cell_min_v`, `cell_max_v`, `cell_delta_mv`, `cell_voltages_json`, etc.).
+  5. **`telemetry_12v` table**: Structured house & solar data (`battery_voltage`, `battery_soc`, `solar_power`, `solar_voltage`, `solar_current`, `daily_yield_kwh`, `charging_status`).
+  6. **Views**: `v_recent_seatalkng`, `v_recent_ais`, `v_recent_72v`, `v_recent_12v`, `v_recent_packets`.
 
 ### Managing the Logger Service on `hammer`
 The logger runs as a systemd user service under your account:
@@ -120,8 +145,14 @@ import sqlite3
 import pandas as pd
 
 conn = sqlite3.connect("file:data/paeraki.db?mode=ro", uri=True)
-df_72v = pd.read_sql("SELECT * FROM telemetry_72v ORDER BY epoch_ms DESC LIMIT 500", conn)
-print(df_72v[["timestamp", "total_voltage", "current", "power", "rsoc"]])
+
+# Query recent SeaTalkNG dynamics & attitude
+df_stng = pd.read_sql("SELECT timestamp, heading_deg, pitch_deg, roll_deg, pilot_mode FROM telemetry_seatalkng ORDER BY epoch_ms DESC LIMIT 10", conn)
+print(df_stng)
+
+# Query nearby AIS vessels ordered by distance
+df_ais = pd.read_sql("SELECT mmsi, vessel_name, ais_class, range_nm, bearing_deg, sog_knots FROM telemetry_ais ORDER BY range_nm ASC LIMIT 10", conn)
+print(df_ais)
 ```
 
 #### R (DBI / RSQLite)
@@ -134,8 +165,8 @@ library(DBI)
 library(RSQLite)
 
 con <- dbConnect(RSQLite::SQLite(), "data/paeraki.db", flags = SQLITE_RO)
-df <- dbGetQuery(con, "SELECT timestamp, total_voltage, current, power FROM telemetry_72v WHERE power < 0")
-summary(df)
+df_stng <- dbGetQuery(con, "SELECT timestamp, heading_deg, pitch_deg, roll_deg FROM telemetry_seatalkng ORDER BY epoch_ms DESC LIMIT 20")
+summary(df_stng)
 ```
 
 #### Julia (SQLite.jl / DataFrames.jl)
@@ -147,7 +178,7 @@ julia logger/examples/query_julia.jl
 using SQLite, DataFrames
 
 db = SQLite.DB("data/paeraki.db")
-df = DBInterface.execute(db, "SELECT * FROM telemetry_72v ORDER BY epoch_ms DESC LIMIT 100") |> DataFrame
+df = DBInterface.execute(db, "SELECT timestamp, heading_deg, pitch_deg, roll_deg, pressure_hpa FROM telemetry_seatalkng ORDER BY epoch_ms DESC LIMIT 20") |> DataFrame
 ```
 
 #### Command-Line (sqlite3 CLI / DuckDB)
@@ -396,7 +427,247 @@ python3 gps/watch.py --dry-run --broker 192.168.1.1 --interval 1.0
 
 ---
 
-## 5. Development & Deployment Workflow
+---
+
+## 5. SeaTalkNG & NMEA 2000 Bus Capture (PUSR USR-CAN115 & look)
+
+Paeraki's **SeaTalkNG (NMEA 2000)** backbone carries critical vessel heading, vessel attitude, rate of turn, rudder feedback, high-rate GNSS navigation, AIS target tracking, and barometric pressure.
+
+The telemetry capture daemon (`paeraki_seatalkng.service`) runs on the single-board computer **`look`**, ingesting raw CAN 2.0B frames from an Ethernet-to-CAN converter, decoding standard and proprietary PGNs, and streaming real-time JSON packets over MQTT to the broker (`192.168.1.1:1883`).
+
+```
+[Raymarine EV-1 (0xCC)] ──┐
+                          ├─► [SeaTalkNG Backbone (250 kbps)] ──► [PUSR USR-CAN115]
+[Vesper Cortex (0x16)]  ──┤                                              │ (CAN-over-TCP: 8234)
+                          │                                              ▼
+[Raymarine ACU (0x00)]  ──┘                                        [eth0 on look]
+                                                                         │
+                                                                         ▼
+                                                            [paeraki_seatalkng.service]
+                                                                         │
+                                                ┌────────────────────────┴────────────────────────┐
+                                                ▼                                                 ▼
+                                  [paeraki/seatalkng/state]                          [paeraki/seatalkng/pgn/*]
+                                  (10 Hz Consolidated Snapshot)                      (Universal Frame Stream)
+                                                │                                                 │
+                                                └────────────────────────┬────────────────────────┘
+                                                                         ▼
+                                                          [Mosquitto Broker 192.168.1.1]
+                                                                         │
+                                                ┌────────────────────────┴────────────────────────┐
+                                                ▼                                                 ▼
+                                   [Web Dashboard & Android App]                     [paeraki_logger on hammer]
+                                   (:8080 on look / APK)                             (data/paeraki.db SQLite WAL)
+```
+
+---
+
+### Hardware Interface & Network Configuration
+
+- **Hardware Converter**: **PUSR USR-CAN115** bidirectional Ethernet-to-CAN converter.
+- **Physical Bus**: NMEA 2000 / SeaTalkNG micro-C spur connection, differential CAN signaling at **250 kbps**, 120 Ω bus termination.
+- **Converter Network Config**:
+  - IP: `192.168.174.10/24`
+  - Operating Mode: **TCP Client**
+  - Destination Target: `192.168.1.108:8234`
+- **SBC `look` Interface Config (`eth0`)**:
+  - Configured in NetworkManager with dual IP assignment to establish direct connectivity to the converter:
+    - Primary IP: `192.168.174.1/24`
+    - Secondary Alias IP: `192.168.1.108/32`
+    - Gateway: None (isolated CAN telemetry segment, preserving `lan0` default routing to the router).
+    - `connection.autoconnect yes`
+  - `paeraki_seatalkng.service` binds a TCP server to `0.0.0.0:8234` and auto-reconnects when frames arrive.
+
+---
+
+### CAN 2.0B Frame Protocol & Packet Format
+
+The PUSR USR-CAN115 streams CAN 2.0B Extended Frames across TCP port 8234. Each frame consists of a frame header, a 29-bit CAN identifier, and up to 8 bytes of data payload:
+
+```
+┌─────────────┬───────────────────────────┬─────────────────────────────────┐
+│ Byte 0      │ Bytes 1 - 4               │ Bytes 5 .. 5+DLC                │
+│ Frame Info  │ 29-bit CAN Identifier     │ Data Payload (0 to 8 bytes)     │
+└─────────────┴───────────────────────────┴─────────────────────────────────┘
+```
+
+#### 1. Frame Info Byte (Byte 0)
+- **Bit 7 (`FF`)**: Frame Format (`1` = Extended 29-bit CAN 2.0B, `0` = Standard 11-bit).
+- **Bit 6 (`RTR`)**: Remote Transmission Request (`0` = Data frame).
+- **Bits 3-0 (`DLC`)**: Data Length Code (number of payload bytes, `0` to `8`).
+
+#### 2. 29-Bit Extended CAN Identifier (Bytes 1 - 4)
+The 29-bit CAN ID maps directly to the SAE J1939 / NMEA 2000 address and parameter scheme:
+
+```
+Bits: 28 ── 26 | 25 | 24 | 23 ────────── 16 | 15 ────────── 8 | 7 ────────── 0
+Field:  Prio   | ED | DP |  PDU Format (PF) | PDU Specific(PS)|  Source (SA)
+```
+- **Priority** (3 bits, 28-26): Message bus arbitration priority (`0` = highest, `7` = lowest).
+- **Extended Data Page / ED** (bit 25): Reserved (`0`).
+- **Data Page / DP** (bit 24): Parameter page selector.
+- **PDU Format / PF** (8 bits, 23-16): Parameter Group identifier.
+- **PDU Specific / PS** (8 bits, 15-8):
+  - If `PF < 240` (PDU1 - Addressable): `PS` specifies the **Destination Address** (`DA`).
+  - If `PF >= 240` (PDU2 - Broadcast): `PS` specifies the **Group Extension** (`GE`).
+- **Source Address / SA** (8 bits, 7-0): Address of the transmitting hardware device.
+- **Parameter Group Number (PGN)** calculation:
+  $$\text{PGN} = (\text{DP} \ll 16) | (\text{PF} \ll 8) | (\text{PS if PF} \ge 240 \text{ else } 0)$$
+
+#### 3. Fast Packet Protocol Reassembly
+NMEA 2000 messages exceeding 8 bytes (e.g. `PGN 129029` GNSS position, `PGN 129038` AIS Class A, `PGN 129809` vessel names) use the NMEA 2000 Fast Packet protocol:
+- **Byte 0**: Protocol Header containing:
+  - **Bits 7-5**: Sequence Counter (0 to 7, grouping multi-packet streams).
+  - **Bits 4-0**: Frame Counter (`0x00` = First Frame, `0x01..0x1F` = Consecutive Frames).
+- **First Frame (`Frame Counter == 0`)**:
+  - Byte 1: Total payload length in bytes ($N$).
+  - Bytes 2-7: Initial 6 bytes of payload data.
+- **Consecutive Frames (`Frame Counter >= 1`)**:
+  - Bytes 1-7: Next 7 sequential bytes of payload data.
+- `seatalkng/decoder.py` maintains state machines keyed by `(Source, PGN, Sequence)` with a 500 ms reassembly timeout to reliably reassemble fast packet sequences without packet loss.
+
+---
+
+### Onboard SeaTalkNG Devices
+
+| Source Address | Device | Location | Key Telemetry Broadcasted |
+| :---: | :--- | :--- | :--- |
+| **`0xCC`** (204) | **Raymarine EV-1 Sensor Core** | Bilge (vessel centerline) | 10 Hz Heading, 10 Hz Pitch/Roll/Yaw, 10 Hz Rate of Turn, 20 Hz Rudder Angle, Magnetic Variation |
+| **`0x16`** (22) | **Vesper Cortex Class B SOTDMA** | Cabin Wall Mount | 10 Hz GNSS Navigation (Position, SOG, COG, Sats, HDOP), Class A & B AIS reports, Barometer |
+| **`0x00`** (0) | **Raymarine ACU / p70 Autopilot** | Helm / Cockpit | Autopilot Operating Mode (`Wind`, `Auto`, `Track`, `Standby`), Rudder Command |
+
+---
+
+### CAN Bus PGN Packet Reference & Decoding Specification
+
+Every packet appearing on Paeraki's SeaTalkNG backbone is decoded and published. The table below details all active PGNs, frame types, rates, source devices, and decoded data fields:
+
+| PGN | Name | Type | Rate | Source | Decoded Fields & Resolution |
+| :---: | :--- | :---: | :---: | :---: | :--- |
+| **`129025`** | **Position, Rapid Update** | Single | 10 Hz | Cortex (`0x16`) | `latitude` (deg, $10^{-7}$), `longitude` (deg, $10^{-7}$) |
+| **`129026`** | **COG & SOG, Rapid Update** | Single | 10 Hz | Cortex (`0x16`) | `sog_knots` (m/s $\to$ kts, res 0.01 m/s), `cog_true` (rad $\to$ deg, res $10^{-4}$ rad) |
+| **`129029`** | **GNSS Position Data** | Fast | 1 Hz | Cortex (`0x16`) | Full fix: Date/Time UTC, `latitude`, `longitude`, `altitude_m` ($10^{-6}$ m), `satellites` (count), `hdop` (res 0.01), `pdop`, `fix_type` |
+| **`127250`** | **Vessel Heading** | Single | 10 Hz | EV-1 (`0xCC`) | `heading_deg` (rad $\to$ deg, res $10^{-4}$ rad), `heading_reference` (`Magnetic` / `True`), `variation_deg` ($10^{-4}$ rad) |
+| **`127251`** | **Rate of Turn** | Single | 10 Hz | EV-1 (`0xCC`) | `rate_of_turn_dps` (rad/s $\to$ °/s, res $3.125 \times 10^{-5}$ rad/s) |
+| **`127257`** | **Attitude** | Single | 10 Hz | EV-1 (`0xCC`) | `yaw_deg` ($10^{-4}$ rad), `pitch_deg` ($10^{-4}$ rad, bow $+$/$-$), `roll_deg` ($10^{-4}$ rad, stbd $+$, port $-$) |
+| **`127258`** | **Magnetic Variation** | Single | 1 Hz | EV-1 (`0xCC`) | `variation_deg` (rad $\to$ deg, local NZ variation $+24.9^\circ\text{ E}$) |
+| **`127245`** | **Rudder** | Single | 20 Hz | ACU (`0x00`) / EV-1 | `rudder_deg` (rad $\to$ deg, port/stbd angle), `rudder_order_deg` |
+| **`129038`** | **AIS Class A Position Report** | Fast | Event | Cortex (`0x16`) | `mmsi`, `latitude`, `longitude`, `sog_knots`, `cog_true`, `true_heading`, `nav_status` (Underway, Moored, At Anchor), `rate_of_turn_dps` |
+| **`129039`** | **AIS Class B Position Report** | Fast | Event | Cortex (`0x16`) | `mmsi`, `latitude`, `longitude`, `sog_knots`, `cog_true`, `true_heading` |
+| **`129809`** | **AIS Class B Static Data Part A** | Fast | Event | Cortex (`0x16`) | `mmsi`, `vessel_name` (ASCII decoded vessel broadcast name) |
+| **`129810`** | **AIS Class B Static Data Part B** | Fast | Event | Cortex (`0x16`) | `mmsi`, `call_sign`, `ship_type`, length, beam, dimensions |
+| **`130314`** | **Actual Pressure (Barometer)** | Single | 1 Hz | Cortex (`0x16`) | `pressure_hpa` (Pascals $\to$ hPa, res 100 Pa, Vesper Cortex atmospheric sensor) |
+| **`65379`** | **Raymarine Autopilot Mode** | Single | 1 Hz | ACU (`0x00`) / EV-1 | Raymarine proprietary pilot state: `Wind`, `Track`, `Auto`, `Standby` |
+| **`126208`** | **NMEA Request / Ack Group** | Single | Event | Any | Bus control commands and acknowledgments |
+| **`126996`** | **Product Information** | Fast | Event | Any | Model ID, software version, hardware serial number |
+
+---
+
+### Detailed Packet Breakdown
+
+#### 1. PGN 127250: Vessel Heading (10 Hz from Raymarine EV-1)
+```text
+Byte 0:    SID (Sequence ID)
+Bytes 1-2: Heading Angle (unsigned 16-bit, Little Endian, res: 0.0001 rad, 0 to 2*PI)
+Bytes 3-4: Deviation (signed 16-bit, Little Endian, res: 0.0001 rad)
+Bytes 5-6: Variation (signed 16-bit, Little Endian, res: 0.0001 rad, + = East, - = West)
+Byte 7:    Heading Reference (bits 0-1: 0 = True, 1 = Magnetic, 2 = Error, 3 = Null)
+```
+
+#### 2. PGN 127257: Attitude Dynamics (10 Hz from Raymarine EV-1)
+```text
+Byte 0:    SID (Sequence ID)
+Bytes 1-2: Yaw Angle (signed 16-bit, Little Endian, res: 0.0001 rad, -PI to +PI)
+Bytes 3-4: Pitch Angle (signed 16-bit, Little Endian, res: 0.0001 rad, + = Bow Up, - = Bow Down)
+Bytes 5-6: Roll Angle (signed 16-bit, Little Endian, res: 0.0001 rad, + = Starboard List, - = Port List)
+Byte 7:    Reserved (0xFF)
+```
+
+#### 3. PGN 130314: Actual Pressure (1 Hz from Vesper Cortex Barometer)
+```text
+Byte 0:    SID (Sequence ID)
+Byte 1:    Pressure Instance (0 = Atmospheric Barometer)
+Byte 2:    Pressure Source (0 = Atmospheric)
+Bytes 3-6: Pressure in Pascals (unsigned 32-bit, Little Endian, res: 0.1 Pa or 100 Pa)
+           Converted to hPa via: pressure_hpa = raw_val / 100.0
+Byte 7:    Reserved (0xFF)
+```
+
+#### 4. PGN 65379: Raymarine Proprietary Autopilot State
+```text
+Bytes 0-1: Raymarine Manufacturer Code (0x003B) & Industry Group (4 = Marine)
+Bytes 2-7: Proprietary Mode Payload
+           Decodes operating pilot states: Standby, Auto (Heading Hold), Wind Vane Mode, Track
+```
+
+---
+
+### Universal Capture Policy & Novel PGN Fallback
+
+To guarantee zero data loss, **every packet arriving on the CAN bus is preserved and published**:
+1. **Mapped PGNs**: Decoded into engineering units and published to discrete structured topics.
+2. **Novel / Unmapped PGNs**: Published to `paeraki/seatalkng/pgn/<pgn>` with complete raw byte and hexadecimal payloads:
+   ```json
+   {
+     "pgn": 126208,
+     "name": "NMEA Request / Command / Acknowledge Group Function",
+     "src": 0,
+     "prio": 3,
+     "len": 8,
+     "timestamp": "2026-09-15T01:14:16.077856+00:00",
+     "decoded": false,
+     "hex": "6350ffffffffffff",
+     "bytes": [99, 80, 255, 255, 255, 255, 255, 255]
+   }
+   ```
+3. **Live Bus Catalog (`paeraki/seatalkng/catalog`)**: Published every 5 seconds, providing an active inventory of every PGN on the bus, total frame count, real-time message frequency (Hz), and sending source addresses.
+
+---
+
+### Published MQTT Topics
+
+| Topic | Frequency | Description |
+| :--- | :---: | :--- |
+| **`paeraki/seatalkng/state`** | 10 Hz | Consolidated telemetry snapshot (Lat, Lon, SOG, COG, Heading, Pitch, Roll, ROT, Rudder, Barometer, Sats, HDOP, AIS count). |
+| **`paeraki/seatalkng/gps`** | 10 Hz | High-precision Cortex GNSS fix, nautical coordinates, velocity conversions, satellite count, and dilution of precision. |
+| **`paeraki/seatalkng/heading`** | 10 Hz | Raymarine EV-1 fluxgate compass: Magnetic Heading, True Heading, local variation, Cardinal direction, Rate of Turn, and Rudder angle. |
+| **`paeraki/seatalkng/attitude`** | 10 Hz | Vessel attitude dynamics: Pitch (°), Roll (°), Yaw (°), Rate of Turn (°/s), and active Autopilot Mode. |
+| **`paeraki/seatalkng/environment`** | 1 Hz | Atmospheric pressure in **hPa** from the Cortex solid-state barometer. |
+| **`paeraki/seatalkng/ais/targets`** | 1 Hz | Array of all active AIS vessels detected in VHF range, sorted by geodetic range (**closest first**). |
+| **`paeraki/seatalkng/ais/target/<mmsi>`** | Event | Individual vessel updates including MMSI, vessel name, range (NM), bearing (°), SOG, COG, status, and class. |
+| **`paeraki/seatalkng/pgn/<pgn>`** | Stream | Granular feed for every individual PGN broadcast on the SeaTalkNG bus. |
+| **`paeraki/seatalkng/catalog`** | 0.2 Hz | Comprehensive bus directory of all active PGNs, rates (Hz), source addresses, and latest frame payloads. |
+
+---
+
+### SeaTalkNG CLI Monitor & Service Management
+
+#### 1. Interactive Terminal Monitor
+You can inspect the live SeaTalkNG bus directly in your terminal on `look` or over SSH from `hammer`:
+```bash
+# Rich terminal dashboard displaying heading, attitude, navigation, and closest AIS vessels
+ssh look "python3 ~/paeraki/seatalkng/cli.py"
+
+# Raw CAN frame stream showing 29-bit CAN IDs, PGNs, and hex byte dumps
+ssh look "python3 ~/paeraki/seatalkng/cli.py --raw"
+```
+
+#### 2. Service Management on `look`
+The daemon runs as a continuous systemd background service:
+```bash
+# Check service status
+ssh look "systemctl status paeraki_seatalkng.service"
+
+# Stream live service logs
+ssh look "journalctl -u paeraki_seatalkng.service -f"
+
+# Restart daemon after updates
+ssh look "sudo systemctl restart paeraki_seatalkng.service"
+```
+
+---
+
+## 6. Development & Deployment Workflow
 
 Development takes place locally on `hammer` and changes are synced directly to `look`:
 
@@ -404,8 +675,8 @@ Development takes place locally on `hammer` and changes are synced directly to `
 # Sync local changes to look (ignoring .venv, git, and local database files)
 REMOTE_HOST=jh@192.168.1.100 ./sync.sh
 
-# Sync and execute a command on look:
-REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_dashboard"
+# Sync and restart services on look:
+REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng paeraki_dashboard"
 ```
 
 ---
@@ -418,15 +689,15 @@ REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_dashboard
 1. ~~Real-time web dashboard & terminal monitor~~
 1. ~~Continuous telemetry logger & time-series database (SQLite WAL)~~
 1. ~~Position via RTU / GPS~~
+1. ~~Capture SeaTalkNG / NMEA2000 data~~
+   - ~~compass, attitude, accelerometer, etc.~~
+   - ~~GPS & AIS from Cortex~~
 1. Alarms
    - SMS, email
    - low battery (12v, 72v)
    - anchor drag
 1. Log 230V status via smart RCBO
 1. Connect to motor controller CANBUS
-1. Capture SeaTalkNG / NMEA2000 data
-   - compass, attitude, accelerometer, etc.
-   - GPS & AIS from Cortex
 1. Wind instrument
 1. Touchscreen display
 1. Ultrasonic depth sensor
