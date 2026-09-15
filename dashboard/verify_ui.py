@@ -61,11 +61,11 @@ def main():
 
         # Test screenshots under xvfb-run
         screenshots = [
+            ("tab_72v_oppo.png", "360,802", "http://127.0.0.1:8085/?tab=72v"),
+            ("tab_72v_desktop.png", "1280,900", "http://127.0.0.1:8085/?tab=72v"),
             ("tab_ais_desktop.png", "1280,900", "http://127.0.0.1:8085/?tab=ais"),
             ("tab_gps_desktop.png", "1280,1100", "http://127.0.0.1:8085/?tab=gps"),
             ("tab_misc_desktop.png", "1280,900", "http://127.0.0.1:8085/?tab=misc"),
-            ("tab_ais_mobile.png", "412,915", "http://127.0.0.1:8085/?tab=ais"),
-            ("tab_gps_mobile.png", "412,1100", "http://127.0.0.1:8085/?tab=gps"),
         ]
 
         for fname, winsize, url in screenshots:
