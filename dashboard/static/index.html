@@ -377,13 +377,24 @@
         </div>
       </section>
 
-      <!-- ================= TAB 3: GPS NAVIGATION ================= -->
+      <!-- ================= TAB 3: GPS NAVIGATION & DYNAMICS ================= -->
       <section class="tab-panel" id="tab-panel-gps">
-        <div class="card panel-card">
+        <!-- Source Selector Bar -->
+        <div class="source-selector-bar">
+          <span class="source-label">GNSS Source:</span>
+          <div class="source-pill-group">
+            <button class="source-pill-btn active" data-gps-source="seatalkng" id="btn-gps-source-seatalkng">SeaTalkNG (Cortex)</button>
+            <button class="source-pill-btn" data-gps-source="router" id="btn-gps-source-router">Router (RUT955)</button>
+            <button class="source-pill-btn" data-gps-source="both" id="btn-gps-source-both">Both (Compare)</button>
+          </div>
+        </div>
+
+        <!-- Primary Navigation Card -->
+        <div class="card panel-card" id="gps-primary-card">
           <div class="panel-header">
             <div class="card-title-group">
-              <span class="sys-badge teal-badge">NAVIGATION</span>
-              <h2 title="Teltonika RUT955 GPS">GPS Navigation</h2>
+              <span class="sys-badge teal-badge" id="gps-active-source-badge">SEATALKNG GNSS</span>
+              <h2 id="gps-panel-title">GPS Navigation</h2>
             </div>
             <div class="card-badge" id="val-gps-fix-badge">NO FIX</div>
           </div>
@@ -462,6 +473,207 @@
             <span class="last-sentence-badge mono" id="val-gps-sentence">NMEA: --</span>
           </div>
         </div>
+
+        <!-- Dual GPS Comparison Card (Visible when Both is selected) -->
+        <div class="card panel-card" id="gps-compare-card" style="display: none; margin-top: 14px;">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge purple-badge">DUAL RECEIVER COMPARISON</span>
+              <h2>Receiver Comparison</h2>
+            </div>
+            <span class="card-badge" id="gps-compare-delta-badge">Δ --.- m</span>
+          </div>
+          <div class="compare-table-wrapper">
+            <table class="compare-table">
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>SeaTalkNG (Cortex)</th>
+                  <th>Router (RUT955)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Fix Status</td>
+                  <td class="mono" id="cmp-st-fix">--</td>
+                  <td class="mono" id="cmp-rt-fix">--</td>
+                </tr>
+                <tr>
+                  <td>Speed (SOG)</td>
+                  <td class="mono" id="cmp-st-sog">--.- kn</td>
+                  <td class="mono" id="cmp-rt-sog">--.- kn</td>
+                </tr>
+                <tr>
+                  <td>Course (COG)</td>
+                  <td class="mono" id="cmp-st-cog">---°</td>
+                  <td class="mono" id="cmp-rt-cog">---°</td>
+                </tr>
+                <tr>
+                  <td>Latitude</td>
+                  <td class="mono" id="cmp-st-lat">--° --.---' -</td>
+                  <td class="mono" id="cmp-rt-lat">--° --.---' -</td>
+                </tr>
+                <tr>
+                  <td>Longitude</td>
+                  <td class="mono" id="cmp-st-lon">---° --.---' -</td>
+                  <td class="mono" id="cmp-rt-lon">---° --.---' -</td>
+                </tr>
+                <tr>
+                  <td>Satellites</td>
+                  <td class="mono" id="cmp-st-sats">--</td>
+                  <td class="mono" id="cmp-rt-sats">--</td>
+                </tr>
+                <tr>
+                  <td>Precision (HDOP)</td>
+                  <td class="mono" id="cmp-st-hdop">--.-</td>
+                  <td class="mono" id="cmp-rt-hdop">--.-</td>
+                </tr>
+                <tr>
+                  <td>Altitude</td>
+                  <td class="mono" id="cmp-st-alt">--.- m</td>
+                  <td class="mono" id="cmp-rt-alt">--.- m</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SeaTalkNG Heading (Raymarine EV-1) -->
+        <div class="card panel-card" style="margin-top: 14px;">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge cyan-badge">COMPASS</span>
+              <h2>SeaTalkNG Heading</h2>
+            </div>
+            <span class="card-badge teal-badge" id="val-heading-source-badge">EV-1 COMPASS (10 Hz)</span>
+          </div>
+          <div class="hero-metric-row">
+            <div class="gps-hero-block">
+              <span class="stat-label">MAGNETIC HEADING</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono glow-cyan" id="val-seatalk-heading-mag">---°</span>
+                <span class="stat-unit-label">MAG</span>
+              </div>
+              <div class="gps-sub-stats">
+                <span>True: <strong class="mono" id="val-seatalk-heading-true">---° T</strong></span>
+                <span>Var: <strong class="mono" id="val-seatalk-heading-var">24.9° E</strong></span>
+              </div>
+            </div>
+            <div class="gps-hero-block">
+              <span class="stat-label">CARDINAL &amp; ROT</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono" id="val-seatalk-heading-cardinal">--</span>
+              </div>
+              <div class="gps-sub-stats">
+                <span>Rate of Turn: <strong class="mono" id="val-seatalk-rot">--.- °/s</strong></span>
+                <span>Rudder: <strong class="mono" id="val-seatalk-rudder">--.-°</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vessel Attitude Dynamics (Raymarine EV-1) -->
+        <div class="card panel-card" style="margin-top: 14px;">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge amber-badge">VESSEL ATTITUDE</span>
+              <h2>Pitch &amp; Roll Dynamics</h2>
+            </div>
+            <span class="card-badge" id="val-attitude-pilot-mode">STANDBY</span>
+          </div>
+
+          <div class="attitude-bars-grid">
+            <div class="attitude-axis-card">
+              <div class="attitude-axis-header">
+                <span class="stat-label">PITCH (BOW UP / DOWN)</span>
+                <span class="stat-val mono" id="val-attitude-pitch">--.-°</span>
+              </div>
+              <div class="attitude-bar-wrap">
+                <div class="attitude-center-line"></div>
+                <div class="attitude-bar-fill pitch-fill" id="attitude-pitch-bar" style="width: 0%; left: 50%;"></div>
+              </div>
+              <div class="attitude-axis-labels">
+                <span>Bow Down (-15°)</span>
+                <span>0°</span>
+                <span>Bow Up (+15°)</span>
+              </div>
+            </div>
+
+            <div class="attitude-axis-card">
+              <div class="attitude-axis-header">
+                <span class="stat-label">ROLL (PORT / STBD HEEL)</span>
+                <span class="stat-val mono" id="val-attitude-roll">--.-°</span>
+              </div>
+              <div class="attitude-bar-wrap">
+                <div class="attitude-center-line"></div>
+                <div class="attitude-bar-fill roll-fill" id="attitude-roll-bar" style="width: 0%; left: 50%;"></div>
+              </div>
+              <div class="attitude-axis-labels">
+                <span>Port (-30°)</span>
+                <span>0°</span>
+                <span>Starboard (+30°)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB: AIS TARGET DIRECTORY ================= -->
+      <section class="tab-panel" id="tab-panel-ais">
+        <!-- Paeraki Own AIS Status Card -->
+        <div class="card panel-card">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge teal-badge">TRANSPONDER</span>
+              <h2>Paeraki AIS Status</h2>
+            </div>
+            <div class="card-badge teal-badge" id="ais-own-status-badge">ONLINE · SOTDMA</div>
+          </div>
+
+          <div class="ais-status-summary-grid">
+            <div class="submetric">
+              <span class="submetric-label">Vesper Cortex Hardware</span>
+              <span class="submetric-val" id="ais-own-hardware">Class B SOTDMA (5W)</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Transponder State</span>
+              <span class="submetric-val mono" id="ais-own-tx-state">Transmitting &amp; Receiving</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Active Targets in Range</span>
+              <span class="submetric-val mono" id="ais-target-count-metric">0 vessels</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Closest Vessel</span>
+              <span class="submetric-val mono" id="ais-closest-distance">--.- NM</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- AIS Target Directory List Card -->
+        <div class="card panel-card" style="margin-top: 14px;">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge cyan-badge">TRAFFIC</span>
+              <h2>Nearby Vessels Directory</h2>
+            </div>
+            <!-- Filter buttons -->
+            <div class="filter-group ais-filter-group">
+              <button class="filter-btn active" id="btn-ais-filter-all" data-filter="all">All (<span id="ais-count-all">0</span>)</button>
+              <button class="filter-btn" id="btn-ais-filter-unknown" data-filter="unknown">Unknown (<span id="ais-count-unknown">0</span>)</button>
+              <button class="filter-btn" id="btn-ais-filter-named" data-filter="named">Named (<span id="ais-count-named">0</span>)</button>
+            </div>
+          </div>
+
+          <!-- List of Targets -->
+          <div class="ais-targets-wrapper">
+            <div class="ais-targets-list" id="ais-targets-list">
+              <div class="ais-empty-state">
+                <span>Scanning VHF AIS frequencies...</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ================= TAB 4: LIVE MQTT STREAM INSPECTOR ================= -->
@@ -512,12 +724,36 @@
 
       <!-- ================= TAB 5: MISC & DIAGNOSTICS ================= -->
       <section class="tab-panel" id="tab-panel-misc">
+        <!-- Atmospheric Barometer (Vesper Cortex PGN 130314) -->
         <div class="card panel-card">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge cyan-badge">ENVIRONMENT</span>
+              <h2>Atmospheric Barometer</h2>
+            </div>
+            <div class="card-badge teal-badge" id="misc-baro-trend-badge">STEADY</div>
+          </div>
+          <div class="hero-metric-row">
+            <div class="gps-hero-block" style="flex: 1;">
+              <span class="stat-label">ATMOSPHERIC PRESSURE</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono glow-teal" id="val-baro-hpa">----.-</span>
+                <span class="stat-unit-label">hPa</span>
+              </div>
+              <div class="gps-sub-stats">
+                <span>Trend: <strong class="mono" id="val-baro-trend">Steady</strong></span>
+                <span>Sensor: <strong class="mono">Vesper Cortex (PGN 130314)</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card panel-card" style="margin-top: 14px;">
           <!-- Diagnostics & Endpoints -->
           <div class="panel-header">
             <div class="card-title-group">
-              <span class="sys-badge purple-badge">SYSTEM & DIAGNOSTICS</span>
-              <h2>Broker & Server Status</h2>
+              <span class="sys-badge purple-badge">SYSTEM &amp; DIAGNOSTICS</span>
+              <h2>Broker &amp; Server Status</h2>
             </div>
           </div>
 
@@ -539,7 +775,6 @@
               <span class="submetric-val mono" id="misc-packet-rate">0.0 msg/s</span>
             </div>
           </div>
-
 
           <!-- App Actions & Download -->
           <div class="misc-actions-row">
@@ -587,6 +822,18 @@
         </svg>
         <span>GPS</span>
       </button>
+      <button class="nav-tab" data-tab="ais" id="btn-tab-ais" aria-label="AIS Target Directory">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <circle cx="12" cy="12" r="6"></circle>
+          <circle cx="12" cy="12" r="2"></circle>
+          <line x1="12" y1="2" x2="12" y2="4"></line>
+          <line x1="12" y1="20" x2="12" y2="22"></line>
+          <line x1="2" y1="12" x2="4" y2="12"></line>
+          <line x1="20" y1="12" x2="22" y2="12"></line>
+        </svg>
+        <span>AIS</span>
+      </button>
       <button class="nav-tab" data-tab="feed" id="btn-tab-feed" aria-label="MQTT Packet Feed">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
@@ -608,6 +855,6 @@
     </nav>
   </div>
 
-  <script src="/static/app.js?v=20260914_08"></script>
+  <script src="/static/app.js?v=20260915_01"></script>
 </body>
 </html>

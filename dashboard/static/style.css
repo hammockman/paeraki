@@ -2074,4 +2074,428 @@ body.high-contrast .last-sentence-badge {
   color: #000000;
 }
 
+/* ---------------- GNSS Source Selector Bar ---------------- */
+.source-selector-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+  padding: 0.45rem 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.source-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.source-pill-group {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.source-pill-btn {
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.source-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.source-pill-btn.active {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.25);
+}
+
+/* ---------------- Dual Receiver Comparison Table ---------------- */
+.compare-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: rgba(8, 14, 28, 0.5);
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+.compare-table th {
+  padding: 0.6rem 0.85rem;
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.compare-table td {
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+}
+
+.compare-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------------- Vessel Attitude Dynamics Level Bars ---------------- */
+.attitude-bars-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .attitude-bars-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.attitude-axis-card {
+  background: rgba(8, 14, 28, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.attitude-axis-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.attitude-axis-header .stat-val {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.attitude-bar-wrap {
+  position: relative;
+  height: 14px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.attitude-center-line {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.4);
+  z-index: 2;
+  transform: translateX(-50%);
+}
+
+.attitude-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.15s ease, left 0.15s ease;
+}
+
+.attitude-bar-fill.pitch-fill {
+  background: linear-gradient(90deg, #0284c7, #38bdf8);
+}
+
+.attitude-bar-fill.roll-fill {
+  background: linear-gradient(90deg, #d97706, #fbbf24);
+}
+
+.attitude-axis-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+}
+
+/* ---------------- AIS Transponder & Traffic Tab ---------------- */
+.ais-status-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .ais-status-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.ais-filter-group {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.ais-targets-wrapper {
+  margin-top: 0.75rem;
+}
+
+.ais-targets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ais-empty-state {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.ais-target-card {
+  background: rgba(8, 14, 28, 0.65);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+}
+
+.ais-target-card:hover {
+  border-color: rgba(6, 182, 212, 0.4);
+}
+
+.ais-target-card.is-unknown {
+  border-left: 4px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.04);
+}
+
+.ais-target-card.is-closest {
+  box-shadow: 0 0 14px rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.5);
+}
+
+.ais-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ais-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ais-vessel-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+
+.ais-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.unknown-badge {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.class-badge {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-muted);
+}
+
+.closest-badge {
+  background: rgba(6, 182, 212, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+}
+
+.ais-distance-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.ais-distance-val {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #38bdf8;
+  line-height: 1;
+}
+
+.ais-distance-unit {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ais-card-body {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@media (max-width: 640px) {
+  .ais-card-body {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+  }
+}
+
+.ais-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ais-stat-label {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ais-stat-val {
+  font-size: 0.76rem;
+  color: var(--text-primary);
+}
+
+.ais-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  padding-top: 0.2rem;
+}
+
+/* Sunlight mode overrides for new elements */
+body.high-contrast .source-selector-bar {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.high-contrast .source-label {
+  color: #475569 !important;
+}
+
+body.high-contrast .source-pill-btn {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+body.high-contrast .source-pill-btn.active {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border-color: #0284c7 !important;
+}
+
+body.high-contrast .compare-table-wrapper {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.high-contrast .compare-table th {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+  border-bottom: 1px solid #cbd5e1 !important;
+}
+
+body.high-contrast .compare-table td {
+  border-bottom: 1px solid #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+body.high-contrast .attitude-axis-card {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.high-contrast .attitude-bar-wrap {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.high-contrast .attitude-center-line {
+  background: #0f172a !important;
+}
+
+body.high-contrast .ais-target-card {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.high-contrast .ais-target-card.is-unknown {
+  background: #fffbeb !important;
+  border-left-color: #d97706 !important;
+}
+
+body.high-contrast .ais-vessel-name {
+  color: #0f172a !important;
+}
+
+body.high-contrast .ais-distance-val {
+  color: #0284c7 !important;
+}
+
+body.high-contrast .unknown-badge {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  border-color: #fde68a !important;
+}
+
+body.high-contrast .ais-empty-state {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #64748b !important;
+}
+
+
 

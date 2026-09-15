@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import random
+import math
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -38,6 +39,62 @@ logger = logging.getLogger("paeraki.monitor")
 STATIC_DIR = Path(__file__).parent / "static"
 DATA_DIR = Path(__file__).parent.parent / "data"
 DIST_DIR = Path(__file__).parent.parent / "dist"
+
+
+def format_lat_nautical(lat: float | None) -> str:
+    """Formats decimal latitude into nautical degrees and minutes (e.g. 36° 50.910' S)."""
+    if lat is None:
+        return "--° --.---' -"
+    hemi = "S" if lat < 0 else "N"
+    abs_lat = abs(lat)
+    deg = int(abs_lat)
+    minutes = (abs_lat - deg) * 60.0
+    return f"{deg}° {minutes:06.3f}' {hemi}"
+
+
+def format_lon_nautical(lon: float | None) -> str:
+    """Formats decimal longitude into nautical degrees and minutes (e.g. 174° 45.798' E)."""
+    if lon is None:
+        return "---° --.---' -"
+    hemi = "W" if lon < 0 else "E"
+    abs_lon = abs(lon)
+    deg = int(abs_lon)
+    minutes = (abs_lon - deg) * 60.0
+    return f"{deg}° {minutes:06.3f}' {hemi}"
+
+
+def haversine_nm(lat1: float | None, lon1: float | None, lat2: float | None, lon2: float | None) -> float | None:
+    """Computes great-circle distance between two WGS84 coordinates in nautical miles."""
+    if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+        return None
+    try:
+        R_nm = 3440.065  # Earth mean radius in nautical miles
+        phi1 = math.radians(float(lat1))
+        phi2 = math.radians(float(lat2))
+        dphi = math.radians(float(lat2) - float(lat1))
+        dlambda = math.radians(float(lon2) - float(lon1))
+        a = math.sin(dphi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
+        c = 2.0 * math.atan2(math.sqrt(max(0.0, a)), math.sqrt(max(0.0, 1.0 - a)))
+        return round(R_nm * c, 2)
+    except Exception:
+        return None
+
+
+def calculate_bearing_deg(lat1: float | None, lon1: float | None, lat2: float | None, lon2: float | None) -> float | None:
+    """Computes initial true bearing in degrees from point 1 to point 2."""
+    if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+        return None
+    try:
+        phi1 = math.radians(float(lat1))
+        phi2 = math.radians(float(lat2))
+        dlambda = math.radians(float(lon2) - float(lon1))
+        y = math.sin(dlambda) * math.cos(phi2)
+        x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlambda)
+        bearing = (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+        return round(bearing, 1)
+    except Exception:
+        return None
+
 
 
 class DashboardState:
@@ -128,7 +185,82 @@ class DashboardState:
             "hdop": None,
             "last_sentence": None,
             "last_updated": None,
+            "source": "seatalkng",
         }
+
+        # Independent Router GPS (Teltonika RUT955 over UDP 8500)
+        self.system_gps_router: dict[str, Any] = {
+            "fix": False,
+            "fix_status": "NO FIX",
+            "latitude": None,
+            "longitude": None,
+            "latitude_nautical": "--° --.---' -",
+            "longitude_nautical": "---° --.---' -",
+            "sog_knots": 0.0,
+            "cog_true": None,
+            "altitude_m": None,
+            "satellites": 0,
+            "hdop": None,
+            "last_updated": None,
+            "source": "router",
+        }
+
+        # Independent SeaTalkNG GNSS (Vesper Cortex high-precision 10 Hz)
+        self.system_gps_seatalkng: dict[str, Any] = {
+            "fix": False,
+            "fix_status": "NO FIX",
+            "latitude": None,
+            "longitude": None,
+            "latitude_nautical": "--° --.---' -",
+            "longitude_nautical": "---° --.---' -",
+            "sog_knots": 0.0,
+            "cog_true": None,
+            "altitude_m": None,
+            "satellites": 0,
+            "hdop": None,
+            "last_updated": None,
+            "source": "seatalkng",
+        }
+
+        # SeaTalkNG Attitude & Dynamics (Raymarine EV-1)
+        self.seatalkng_attitude: dict[str, Any] = {
+            "pitch_deg": None,
+            "roll_deg": None,
+            "yaw_deg": None,
+            "rate_of_turn_dps": None,
+            "rudder_deg": None,
+            "pilot_mode": "Standby",
+            "last_updated": None,
+        }
+
+        # SeaTalkNG Heading (Raymarine EV-1)
+        self.seatalkng_heading: dict[str, Any] = {
+            "heading_deg": None,
+            "reference": "Magnetic",
+            "variation_deg": 24.87,
+            "last_updated": None,
+        }
+
+        # SeaTalkNG Environmental / Barometer (Vesper Cortex)
+        self.seatalkng_environment: dict[str, Any] = {
+            "pressure_hpa": None,
+            "trend": "Steady",
+            "last_updated": None,
+        }
+
+        # Paeraki AIS Transponder Status (Vesper Cortex)
+        self.ais_status: dict[str, Any] = {
+            "online": False,
+            "hardware": "Vesper Cortex Class B SOTDMA",
+            "source_address": 22,
+            "status_label": "OFFLINE",
+            "last_heard_sec": None,
+            "target_count": 0,
+            "last_updated": None,
+        }
+
+        # AIS Target Directory (MMSI -> target dict)
+        self.ais_targets: dict[int, dict[str, Any]] = {}
 
         self.charger: dict[str, Any] = {
             "state": "OFFLINE",
@@ -250,9 +382,152 @@ class DashboardState:
                 self.system_12v[field] = val
                 self.system_12v["last_updated"] = iso_now
 
+        elif topic == "paeraki/seatalkng/state" and isinstance(parsed_json, dict):
+            lat = parsed_json.get("latitude")
+            lon = parsed_json.get("longitude")
+            sog = parsed_json.get("sog_knots")
+            cog = parsed_json.get("cog_true")
+            sats = parsed_json.get("satellites")
+            hdop = parsed_json.get("hdop")
+            alt = parsed_json.get("altitude_m")
+
+            self.system_gps_seatalkng.update({
+                "fix": lat is not None and lon is not None,
+                "fix_status": "GNSS 3D Fix" if lat is not None else "NO FIX",
+                "latitude": lat,
+                "longitude": lon,
+                "latitude_nautical": format_lat_nautical(lat),
+                "longitude_nautical": format_lon_nautical(lon),
+                "sog_knots": round(float(sog), 1) if sog is not None else 0.0,
+                "sog_kmh": round(float(sog) * 1.852, 1) if sog is not None else 0.0,
+                "sog_ms": round(float(sog) * 0.514444, 1) if sog is not None else 0.0,
+                "cog_true": round(float(cog), 1) if cog is not None else None,
+                "satellites": sats if sats is not None else self.system_gps_seatalkng.get("satellites", 0),
+                "hdop": hdop,
+                "altitude_m": alt,
+                "last_updated": iso_now,
+                "source": "seatalkng",
+            })
+
+            # If active source is SeaTalkNG, sync primary system_gps
+            if self.system_gps.get("source") == "seatalkng":
+                self.system_gps.update(self.system_gps_seatalkng)
+
+            # Update heading
+            if parsed_json.get("heading_deg") is not None:
+                self.seatalkng_heading.update({
+                    "heading_deg": parsed_json.get("heading_deg"),
+                    "reference": parsed_json.get("heading_reference", "Magnetic"),
+                    "variation_deg": parsed_json.get("variation_deg", 24.87),
+                    "last_updated": iso_now,
+                })
+
+            # Update attitude
+            if parsed_json.get("pitch_deg") is not None or parsed_json.get("roll_deg") is not None:
+                self.seatalkng_attitude.update({
+                    "pitch_deg": parsed_json.get("pitch_deg"),
+                    "roll_deg": parsed_json.get("roll_deg"),
+                    "yaw_deg": parsed_json.get("yaw_deg"),
+                    "rate_of_turn_dps": parsed_json.get("rate_of_turn_dps"),
+                    "rudder_deg": parsed_json.get("rudder_deg"),
+                    "pilot_mode": parsed_json.get("pilot_mode", "Standby"),
+                    "last_updated": iso_now,
+                })
+
+            # Update environment / barometer
+            if parsed_json.get("pressure_hpa") is not None:
+                self.seatalkng_environment.update({
+                    "pressure_hpa": parsed_json.get("pressure_hpa"),
+                    "trend": "Steady",
+                    "last_updated": iso_now,
+                })
+
+            # Mark AIS / Cortex as active
+            self.ais_status["online"] = True
+            self.ais_status["status_label"] = "ONLINE · ACTIVE"
+            self.ais_status["last_updated"] = iso_now
+
+        elif topic == "paeraki/seatalkng/gps" and isinstance(parsed_json, dict):
+            lat = parsed_json.get("latitude")
+            lon = parsed_json.get("longitude")
+            sog = parsed_json.get("sog_knots")
+            cog = parsed_json.get("cog_true")
+            self.system_gps_seatalkng.update({
+                "fix": lat is not None and lon is not None,
+                "fix_status": "GNSS 3D Fix" if lat is not None else "NO FIX",
+                "latitude": lat,
+                "longitude": lon,
+                "latitude_nautical": format_lat_nautical(lat),
+                "longitude_nautical": format_lon_nautical(lon),
+                "sog_knots": round(float(sog), 1) if sog is not None else 0.0,
+                "sog_kmh": round(float(sog) * 1.852, 1) if sog is not None else 0.0,
+                "sog_ms": round(float(sog) * 0.514444, 1) if sog is not None else 0.0,
+                "cog_true": round(float(cog), 1) if cog is not None else None,
+                "satellites": parsed_json.get("satellites", self.system_gps_seatalkng.get("satellites")),
+                "hdop": parsed_json.get("hdop", self.system_gps_seatalkng.get("hdop")),
+                "altitude_m": parsed_json.get("altitude_m", self.system_gps_seatalkng.get("altitude_m")),
+                "last_updated": iso_now,
+                "source": "seatalkng",
+            })
+            if self.system_gps.get("source") == "seatalkng":
+                self.system_gps.update(self.system_gps_seatalkng)
+
+        elif topic == "paeraki/seatalkng/heading" and isinstance(parsed_json, dict):
+            self.seatalkng_heading.update(parsed_json)
+            self.seatalkng_heading["last_updated"] = iso_now
+
+        elif topic == "paeraki/seatalkng/attitude" and isinstance(parsed_json, dict):
+            self.seatalkng_attitude.update(parsed_json)
+            self.seatalkng_attitude["last_updated"] = iso_now
+
+        elif topic == "paeraki/seatalkng/environment" and isinstance(parsed_json, dict):
+            self.seatalkng_environment.update(parsed_json)
+            self.seatalkng_environment["last_updated"] = iso_now
+
+        elif topic.startswith("paeraki/seatalkng/ais/target/") and isinstance(parsed_json, dict):
+            mmsi_str = topic.split("/")[-1]
+            try:
+                mmsi = int(mmsi_str)
+            except ValueError:
+                mmsi = parsed_json.get("mmsi")
+            if mmsi:
+                parsed_json["mmsi"] = mmsi
+                parsed_json["timestamp_ts"] = now_ts
+                parsed_json["last_updated"] = iso_now
+                if mmsi in self.ais_targets:
+                    self.ais_targets[mmsi].update(parsed_json)
+                else:
+                    self.ais_targets[mmsi] = parsed_json
+            self.ais_status["online"] = True
+            self.ais_status["status_label"] = "ONLINE · ACTIVE"
+            self.ais_status["last_updated"] = iso_now
+
+        elif topic == "paeraki/seatalkng/ais/targets" and isinstance(parsed_json, list):
+            for t in parsed_json:
+                if isinstance(t, dict) and "mmsi" in t:
+                    m = int(t["mmsi"])
+                    t["timestamp_ts"] = now_ts
+                    t["last_updated"] = iso_now
+                    if m in self.ais_targets:
+                        self.ais_targets[m].update(t)
+                    else:
+                        self.ais_targets[m] = t
+            self.ais_status["online"] = True
+            self.ais_status["status_label"] = "ONLINE · ACTIVE"
+            self.ais_status["last_updated"] = iso_now
+
         elif topic == "paeraki/gps/state" and isinstance(parsed_json, dict):
-            self.system_gps.update(parsed_json)
-            self.system_gps["last_updated"] = iso_now
+            lat = parsed_json.get("latitude")
+            lon = parsed_json.get("longitude")
+            self.system_gps_router.update(parsed_json)
+            self.system_gps_router["latitude_nautical"] = format_lat_nautical(lat)
+            self.system_gps_router["longitude_nautical"] = format_lon_nautical(lon)
+            self.system_gps_router["last_updated"] = iso_now
+            self.system_gps_router["source"] = "router"
+
+            if self.system_gps.get("source") == "router":
+                self.system_gps.update(self.system_gps_router)
+
         elif topic.startswith("gps/"):
             field = topic.split("/", 1)[1]
             val = parsed_json if parsed_json is not None else payload_str
@@ -265,8 +540,18 @@ class DashboardState:
                     val = val.lower() == "true"
             except ValueError:
                 pass
-            self.system_gps[field] = val
-            self.system_gps["last_updated"] = iso_now
+            self.system_gps_router[field] = val
+            self.system_gps_router["last_updated"] = iso_now
+            if field in ("latitude", "longitude"):
+                self.system_gps_router["latitude_nautical"] = format_lat_nautical(self.system_gps_router.get("latitude"))
+                self.system_gps_router["longitude_nautical"] = format_lon_nautical(self.system_gps_router.get("longitude"))
+
+            if self.system_gps.get("source") == "router":
+                self.system_gps[field] = val
+                self.system_gps["last_updated"] = iso_now
+                if field in ("latitude", "longitude"):
+                    self.system_gps["latitude_nautical"] = self.system_gps_router["latitude_nautical"]
+                    self.system_gps["longitude_nautical"] = self.system_gps_router["longitude_nautical"]
 
         elif (topic in ("paeraki/charger/state", "charger/telemetry")) and isinstance(parsed_json, dict):
             self.charger.update(parsed_json)
@@ -302,6 +587,71 @@ class DashboardState:
         self.recent_packets.appendleft(packet_entry)
         return packet_entry
 
+    def get_sorted_ais_targets(self) -> list[dict[str, Any]]:
+        now_ts = datetime.now(timezone.utc).timestamp()
+        targets = []
+        own_lat = self.system_gps_seatalkng.get("latitude") or self.system_gps.get("latitude")
+        own_lon = self.system_gps_seatalkng.get("longitude") or self.system_gps.get("longitude")
+
+        for mmsi, t in self.ais_targets.items():
+            t_copy = dict(t)
+            t_lat = t_copy.get("latitude")
+            t_lon = t_copy.get("longitude")
+            if own_lat is not None and own_lon is not None and t_lat is not None and t_lon is not None:
+                r = haversine_nm(own_lat, own_lon, t_lat, t_lon)
+                b = calculate_bearing_deg(own_lat, own_lon, t_lat, t_lon)
+                if r is not None:
+                    t_copy["range_nm"] = r
+                if b is not None:
+                    t_copy["bearing_deg"] = b
+
+            name = (t_copy.get("vessel_name") or "").strip()
+            t_copy["is_unknown"] = not name or name.upper() in ("UNKNOWN", "@", "N/A", "NONE")
+
+            updated_ts = t_copy.get("timestamp_ts") or t_copy.get("last_seen")
+            if updated_ts:
+                t_copy["last_seen_sec"] = max(0, int(now_ts - updated_ts))
+            else:
+                t_copy["last_seen_sec"] = None
+
+            targets.append(t_copy)
+
+        # Sort closest first (None distance goes to bottom)
+        targets.sort(key=lambda x: (x.get("range_nm") is None, x.get("range_nm") or float("inf"), x.get("mmsi") or 0))
+        return targets
+
+    def get_ais_status(self) -> dict[str, Any]:
+        targets = self.get_sorted_ais_targets()
+        closest = targets[0].get("range_nm") if targets else None
+        unknown_count = sum(1 for t in targets if t.get("is_unknown"))
+
+        now_ts = datetime.now(timezone.utc).timestamp()
+        last_updated_iso = self.ais_status.get("last_updated")
+        last_heard = None
+        is_online = False
+        if last_updated_iso:
+            try:
+                dt = datetime.fromisoformat(last_updated_iso)
+                last_heard = max(0, int(now_ts - dt.timestamp()))
+                is_online = last_heard <= 60
+            except Exception:
+                pass
+
+        status_label = "ONLINE · ACTIVE" if is_online else "OFFLINE"
+
+        return {
+            "online": is_online,
+            "hardware": self.ais_status.get("hardware", "Vesper Cortex Class B SOTDMA"),
+            "source_address": self.ais_status.get("source_address", 22),
+            "status_label": status_label,
+            "last_heard_sec": last_heard,
+            "target_count": len(targets),
+            "unknown_count": unknown_count,
+            "named_count": len(targets) - unknown_count,
+            "closest_range_nm": closest,
+            "last_updated": last_updated_iso,
+        }
+
     def get_snapshot(self) -> dict:
         return {
             "server": {
@@ -319,6 +669,15 @@ class DashboardState:
                 "72v": self.system_72v,
                 "12v": self.system_12v,
                 "gps": self.system_gps,
+                "gps_router": self.system_gps_router,
+                "gps_seatalkng": self.system_gps_seatalkng,
+                "seatalkng": {
+                    "attitude": self.seatalkng_attitude,
+                    "heading": self.seatalkng_heading,
+                    "environment": self.seatalkng_environment,
+                    "ais_status": self.get_ais_status(),
+                    "ais_targets": self.get_sorted_ais_targets(),
+                },
                 "charger": self.charger,
                 "raw_topics": self.raw_topics,
             },
@@ -440,9 +799,110 @@ async def mock_worker(interval: float = 2.0):
                 "battery_temperature": round(24.0 + random.uniform(-0.3, 0.3), 1),
             }
 
+            # SeaTalkNG State & Navigation mock
+            base_lat = -36.8485
+            base_lon = 174.7633
+            seatalk_data = {
+                "latitude": base_lat,
+                "longitude": base_lon,
+                "sog_knots": round(4.5 + random.uniform(-0.2, 0.2), 1),
+                "cog_true": 45.0,
+                "heading_deg": 43.5,
+                "heading_reference": "Magnetic",
+                "variation_deg": 24.87,
+                "pitch_deg": round(-0.4 + random.uniform(-0.3, 0.3), 1),
+                "roll_deg": round(1.5 + random.uniform(-0.6, 0.6), 1),
+                "yaw_deg": 43.5,
+                "rate_of_turn_dps": round(random.uniform(-0.2, 0.2), 1),
+                "rudder_deg": round(0.5 + random.uniform(-0.2, 0.2), 1),
+                "satellites": 15,
+                "hdop": 0.49,
+                "altitude_m": 2.1,
+                "pressure_hpa": round(1014.2 + random.uniform(-0.1, 0.1), 1),
+                "pilot_mode": "Auto Track",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+            # Router GPS mock (Teltonika RUT955)
+            router_gps_data = {
+                "latitude": base_lat - 0.00002,
+                "longitude": base_lon + 0.00003,
+                "sog_knots": round(4.4 + random.uniform(-0.3, 0.3), 1),
+                "cog_true": 44.0,
+                "satellites": 9,
+                "hdop": 1.1,
+                "altitude_m": 4.5,
+                "fix": True,
+                "fix_status": "3D FIX",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+            # AIS Targets mock
+            mock_ais_targets = [
+                {
+                    "mmsi": 512003891,
+                    "vessel_name": "",
+                    "call_sign": "",
+                    "ship_type": 36,
+                    "ais_class": "B",
+                    "latitude": base_lat + 0.010,
+                    "longitude": base_lon + 0.008,
+                    "sog_knots": 4.8,
+                    "cog_true": 142.0,
+                    "true_heading": 140.0,
+                    "nav_status": "Underway Using Engine",
+                    "last_seen": datetime.now(timezone.utc).timestamp() - 12.0,
+                },
+                {
+                    "mmsi": 512004210,
+                    "vessel_name": "TE AWA",
+                    "call_sign": "ZMA3021",
+                    "ship_type": 60,
+                    "ais_class": "A",
+                    "latitude": base_lat - 0.022,
+                    "longitude": base_lon - 0.015,
+                    "sog_knots": 11.2,
+                    "cog_true": 220.0,
+                    "true_heading": 222.0,
+                    "nav_status": "Underway",
+                    "last_seen": datetime.now(timezone.utc).timestamp() - 4.0,
+                },
+                {
+                    "mmsi": 512009988,
+                    "vessel_name": "",
+                    "call_sign": "",
+                    "ship_type": 37,
+                    "ais_class": "B",
+                    "latitude": base_lat + 0.035,
+                    "longitude": base_lon - 0.020,
+                    "sog_knots": 0.0,
+                    "cog_true": 0.0,
+                    "true_heading": None,
+                    "nav_status": "At Anchor",
+                    "last_seen": datetime.now(timezone.utc).timestamp() - 45.0,
+                },
+                {
+                    "mmsi": 512001122,
+                    "vessel_name": "HAURAKI EXPLORER",
+                    "call_sign": "ZMA4490",
+                    "ship_type": 60,
+                    "ais_class": "A",
+                    "latitude": base_lat + 0.055,
+                    "longitude": base_lon + 0.040,
+                    "sog_knots": 16.5,
+                    "cog_true": 95.0,
+                    "true_heading": 94.0,
+                    "nav_status": "Underway Using Engine",
+                    "last_seen": datetime.now(timezone.utc).timestamp() - 2.0,
+                },
+            ]
+
             # Inject into state
             p1 = state.record_packet("paeraki/72v/state", json.dumps(t72_data), source="mock")
             p2 = state.record_packet("paeraki/12v/state", json.dumps(t12_data), source="mock")
+            p3 = state.record_packet("paeraki/seatalkng/state", json.dumps(seatalk_data), source="mock")
+            p4 = state.record_packet("paeraki/gps/state", json.dumps(router_gps_data), source="mock")
+            p5 = state.record_packet("paeraki/seatalkng/ais/targets", json.dumps(mock_ais_targets), source="mock")
 
             await state.broadcast({
                 "type": "packet",

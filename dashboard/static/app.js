@@ -124,6 +124,48 @@
   const linkGpsMap = document.getElementById('link-gps-map');
   const valGpsSentence = document.getElementById('val-gps-sentence');
 
+  // GNSS Source Selector & Dual Compare DOM
+  const btnGpsSourceSeatalkng = document.getElementById('btn-gps-source-seatalkng');
+  const btnGpsSourceRouter = document.getElementById('btn-gps-source-router');
+  const btnGpsSourceBoth = document.getElementById('btn-gps-source-both');
+  const gpsActiveSourceBadge = document.getElementById('gps-active-source-badge');
+  const gpsPanelTitle = document.getElementById('gps-panel-title');
+  const gpsCompareCard = document.getElementById('gps-compare-card');
+  const gpsCompareDeltaBadge = document.getElementById('gps-compare-delta-badge');
+
+  // SeaTalkNG Heading & Dynamics DOM
+  const valHeadingSourceBadge = document.getElementById('val-heading-source-badge');
+  const valSeatalkHeadingMag = document.getElementById('val-seatalk-heading-mag');
+  const valSeatalkHeadingTrue = document.getElementById('val-seatalk-heading-true');
+  const valSeatalkHeadingVar = document.getElementById('val-seatalk-heading-var');
+  const valSeatalkHeadingCardinal = document.getElementById('val-seatalk-heading-cardinal');
+  const valSeatalkRot = document.getElementById('val-seatalk-rot');
+  const valSeatalkRudder = document.getElementById('val-seatalk-rudder');
+  const valAttitudePitch = document.getElementById('val-attitude-pitch');
+  const attitudePitchBar = document.getElementById('attitude-pitch-bar');
+  const valAttitudeRoll = document.getElementById('val-attitude-roll');
+  const attitudeRollBar = document.getElementById('attitude-roll-bar');
+  const valAttitudePilotMode = document.getElementById('val-attitude-pilot-mode');
+
+  // Barometer DOM (Misc Tab)
+  const valBaroHpa = document.getElementById('val-baro-hpa');
+  const valBaroTrend = document.getElementById('val-baro-trend');
+  const miscBaroTrendBadge = document.getElementById('misc-baro-trend-badge');
+
+  // AIS Tab DOM
+  const aisOwnStatusBadge = document.getElementById('ais-own-status-badge');
+  const aisOwnHardware = document.getElementById('ais-own-hardware');
+  const aisOwnTxState = document.getElementById('ais-own-tx-state');
+  const aisTargetCountMetric = document.getElementById('ais-target-count-metric');
+  const aisClosestDistance = document.getElementById('ais-closest-distance');
+  const aisCountAll = document.getElementById('ais-count-all');
+  const aisCountUnknown = document.getElementById('ais-count-unknown');
+  const aisCountNamed = document.getElementById('ais-count-named');
+  const btnAisFilterAll = document.getElementById('btn-ais-filter-all');
+  const btnAisFilterUnknown = document.getElementById('btn-ais-filter-unknown');
+  const btnAisFilterNamed = document.getElementById('btn-ais-filter-named');
+  const aisTargetsList = document.getElementById('ais-targets-list');
+
   // Log Table DOM
   const logRowsContainer = document.getElementById('log-rows-container');
   const btnPauseLog = document.getElementById('btn-pause-log');
@@ -138,6 +180,12 @@
   let cached72v = null;
   let cached12v = null;
   let cachedGps = null;
+  let cachedGpsSeatalkng = null;
+  let cachedGpsRouter = null;
+  let cachedAisStatus = null;
+  let cachedAisTargets = [];
+  let activeGpsSource = localStorage.getItem('paeraki_gps_source') || 'seatalkng';
+  let activeAisFilter = 'all';
   let selectedSocMode = 'integrated'; // Default to displaying the dashboard integrated SOC
   const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 50; // 314.159
 
@@ -558,6 +606,19 @@
     updateHomeTab();
   }
 
+  // ---------------- Geodetic & Navigation Helpers ----------------
+  function haversineMeters(lat1, lon1, lat2, lon2) {
+    if (lat1 === null || lon1 === null || lat2 === null || lon2 === null || isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return null;
+    const R = 6371000;
+    const phi1 = (Number(lat1) * Math.PI) / 180;
+    const phi2 = (Number(lat2) * Math.PI) / 180;
+    const dphi = ((Number(lat2) - Number(lat1)) * Math.PI) / 180;
+    const dlambda = ((Number(lon2) - Number(lon1)) * Math.PI) / 180;
+    const a = Math.sin(dphi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dlambda / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(Math.max(0, a)), Math.sqrt(Math.max(0, 1 - a)));
+    return R * c;
+  }
+
   // ---------------- GPS Subsystem ----------------
   function updateGpsSubsystem(data) {
     if (!data) return;
@@ -615,12 +676,340 @@
     }
 
     if (valGpsSentence) {
-      valGpsSentence.textContent = data.last_sentence ? `NMEA: $${data.last_sentence}` : 'NMEA: --';
+      valGpsSentence.textContent = data.last_sentence ? `NMEA: $${data.last_sentence}` : (data.source === 'seatalkng' ? 'SeaTalkNG: PGN 129029' : 'NMEA: --');
     }
 
     // Refresh Home Tab Instrument
     updateHomeTab();
   }
+
+  // ---------------- Dual GPS View & Switching ----------------
+  function renderGpsView() {
+    const stGps = cachedGpsSeatalkng || cachedGps || {};
+    const rtGps = cachedGpsRouter || {};
+
+    let activeData = stGps;
+    let badgeText = 'SEATALKNG GNSS';
+    let panelTitle = 'GPS Navigation';
+
+    if (activeGpsSource === 'router') {
+      activeData = rtGps;
+      badgeText = 'ROUTER GNSS (RUT955)';
+      panelTitle = 'GPS Navigation (Router)';
+      if (gpsCompareCard) gpsCompareCard.style.display = 'none';
+    } else if (activeGpsSource === 'both') {
+      activeData = stGps;
+      badgeText = 'SEATALKNG (PRIMARY)';
+      panelTitle = 'Dual GNSS System (SeaTalkNG & Router)';
+      if (gpsCompareCard) {
+        gpsCompareCard.style.display = '';
+        renderGpsComparison(stGps, rtGps);
+      }
+    } else {
+      if (gpsCompareCard) gpsCompareCard.style.display = 'none';
+    }
+
+    if (gpsActiveSourceBadge) gpsActiveSourceBadge.textContent = badgeText;
+    if (gpsPanelTitle) gpsPanelTitle.textContent = panelTitle;
+
+    updateGpsSubsystem(activeData);
+  }
+
+  function renderGpsComparison(st, rt) {
+    const cmpStFix = document.getElementById('cmp-st-fix');
+    const cmpRtFix = document.getElementById('cmp-rt-fix');
+    const cmpStSog = document.getElementById('cmp-st-sog');
+    const cmpRtSog = document.getElementById('cmp-rt-sog');
+    const cmpStCog = document.getElementById('cmp-st-cog');
+    const cmpRtCog = document.getElementById('cmp-rt-cog');
+    const cmpStLat = document.getElementById('cmp-st-lat');
+    const cmpRtLat = document.getElementById('cmp-rt-lat');
+    const cmpStLon = document.getElementById('cmp-st-lon');
+    const cmpRtLon = document.getElementById('cmp-rt-lon');
+    const cmpStSats = document.getElementById('cmp-st-sats');
+    const cmpRtSats = document.getElementById('cmp-rt-sats');
+    const cmpStHdop = document.getElementById('cmp-st-hdop');
+    const cmpRtHdop = document.getElementById('cmp-rt-hdop');
+    const cmpStAlt = document.getElementById('cmp-st-alt');
+    const cmpRtAlt = document.getElementById('cmp-rt-alt');
+
+    if (cmpStFix) cmpStFix.textContent = st.fix ? '3D FIX' : 'NO FIX';
+    if (cmpRtFix) cmpRtFix.textContent = rt.fix ? '3D FIX' : 'NO FIX';
+
+    const stSog = parseFloat(st.sog_knots) || 0.0;
+    const rtSog = parseFloat(rt.sog_knots) || 0.0;
+    if (cmpStSog) cmpStSog.textContent = `${stSog.toFixed(1)} kn`;
+    if (cmpRtSog) cmpRtSog.textContent = `${rtSog.toFixed(1)} kn`;
+
+    const stCog = st.cog_true !== null && st.cog_true !== undefined ? `${Math.round(st.cog_true)}°` : '---°';
+    const rtCog = rt.cog_true !== null && rt.cog_true !== undefined ? `${Math.round(rt.cog_true)}°` : '---°';
+    if (cmpStCog) cmpStCog.textContent = stCog;
+    if (cmpRtCog) cmpRtCog.textContent = rtCog;
+
+    if (cmpStLat) cmpStLat.textContent = st.latitude_nautical || '--° --.--- \' -';
+    if (cmpRtLat) cmpRtLat.textContent = rt.latitude_nautical || '--° --.--- \' -';
+
+    if (cmpStLon) cmpStLon.textContent = st.longitude_nautical || '---° --.--- \' -';
+    if (cmpRtLon) cmpRtLon.textContent = rt.longitude_nautical || '---° --.--- \' -';
+
+    if (cmpStSats) cmpStSats.textContent = `${st.satellites || 0} sats`;
+    if (cmpRtSats) cmpRtSats.textContent = `${rt.satellites || 0} sats`;
+
+    if (cmpStHdop) cmpStHdop.textContent = st.hdop ? Number(st.hdop).toFixed(2) : '--.-';
+    if (cmpRtHdop) cmpRtHdop.textContent = rt.hdop ? Number(rt.hdop).toFixed(2) : '--.-';
+
+    if (cmpStAlt) cmpStAlt.textContent = st.altitude_m !== null && st.altitude_m !== undefined ? `${Number(st.altitude_m).toFixed(1)} m` : '--.- m';
+    if (cmpRtAlt) cmpRtAlt.textContent = rt.altitude_m !== null && rt.altitude_m !== undefined ? `${Number(rt.altitude_m).toFixed(1)} m` : '--.- m';
+
+    const dM = haversineMeters(st.latitude, st.longitude, rt.latitude, rt.longitude);
+    if (gpsCompareDeltaBadge) {
+      if (dM !== null) {
+        gpsCompareDeltaBadge.textContent = `Δ ${dM.toFixed(1)} m`;
+        gpsCompareDeltaBadge.className = 'card-badge ' + (dM < 15 ? 'teal-badge' : 'amber-badge');
+      } else {
+        gpsCompareDeltaBadge.textContent = 'Δ --.- m';
+        gpsCompareDeltaBadge.className = 'card-badge gray-badge';
+      }
+    }
+  }
+
+  function setGpsSource(source) {
+    if (!['seatalkng', 'router', 'both'].includes(source)) source = 'seatalkng';
+    activeGpsSource = source;
+    localStorage.setItem('paeraki_gps_source', source);
+
+    if (btnGpsSourceSeatalkng) btnGpsSourceSeatalkng.classList.toggle('active', source === 'seatalkng');
+    if (btnGpsSourceRouter) btnGpsSourceRouter.classList.toggle('active', source === 'router');
+    if (btnGpsSourceBoth) btnGpsSourceBoth.classList.toggle('active', source === 'both');
+
+    renderGpsView();
+  }
+
+  if (btnGpsSourceSeatalkng) btnGpsSourceSeatalkng.addEventListener('click', () => setGpsSource('seatalkng'));
+  if (btnGpsSourceRouter) btnGpsSourceRouter.addEventListener('click', () => setGpsSource('router'));
+  if (btnGpsSourceBoth) btnGpsSourceBoth.addEventListener('click', () => setGpsSource('both'));
+  setGpsSource(activeGpsSource);
+
+  // ---------------- SeaTalkNG Attitude & Heading ----------------
+  function updateSeaTalkNgAttitudeAndHeading(heading, attitude) {
+    if (heading) {
+      const mag = heading.heading_deg !== null && heading.heading_deg !== undefined ? parseFloat(heading.heading_deg) : null;
+      const varDeg = parseFloat(heading.variation_deg) || 24.87;
+      const trueHdg = mag !== null ? (mag + varDeg + 360.0) % 360.0 : null;
+
+      if (valSeatalkHeadingMag) {
+        valSeatalkHeadingMag.textContent = mag !== null ? `${Math.round(mag).toString().padStart(3, '0')}°` : '---°';
+      }
+      if (valSeatalkHeadingTrue) {
+        valSeatalkHeadingTrue.textContent = trueHdg !== null ? `${Math.round(trueHdg).toString().padStart(3, '0')}° T` : '---° T';
+      }
+      if (valSeatalkHeadingVar) {
+        valSeatalkHeadingVar.textContent = `${Math.abs(varDeg).toFixed(1)}° ${varDeg >= 0 ? 'E' : 'W'}`;
+      }
+      if (valSeatalkHeadingCardinal) {
+        valSeatalkHeadingCardinal.textContent = getCardinalDirection(mag !== null ? mag : trueHdg);
+      }
+    }
+
+    if (attitude) {
+      const pitch = attitude.pitch_deg !== null && attitude.pitch_deg !== undefined ? parseFloat(attitude.pitch_deg) : null;
+      const roll = attitude.roll_deg !== null && attitude.roll_deg !== undefined ? parseFloat(attitude.roll_deg) : null;
+      const rot = attitude.rate_of_turn_dps !== null && attitude.rate_of_turn_dps !== undefined ? parseFloat(attitude.rate_of_turn_dps) : null;
+      const rudder = attitude.rudder_deg !== null && attitude.rudder_deg !== undefined ? parseFloat(attitude.rudder_deg) : null;
+      const mode = attitude.pilot_mode || 'Standby';
+
+      if (valSeatalkRot) {
+        valSeatalkRot.textContent = rot !== null ? `${rot >= 0 ? '+' : ''}${rot.toFixed(1)} °/s` : '--.- °/s';
+      }
+      if (valSeatalkRudder) {
+        valSeatalkRudder.textContent = rudder !== null ? `${rudder >= 0 ? 'STBD ' : 'PORT '}${Math.abs(rudder).toFixed(1)}°` : '--.-°';
+      }
+      if (valAttitudePilotMode) {
+        valAttitudePilotMode.textContent = mode.toUpperCase();
+        valAttitudePilotMode.className = 'card-badge ' + (mode.toLowerCase().includes('auto') ? 'teal-badge' : 'gray-badge');
+      }
+
+      // Pitch level bar (-15 deg to +15 deg)
+      if (valAttitudePitch) {
+        valAttitudePitch.textContent = pitch !== null ? `${pitch >= 0 ? '+' : ''}${pitch.toFixed(1)}°` : '--.-°';
+      }
+      if (attitudePitchBar) {
+        if (pitch !== null) {
+          const maxPitch = 15.0;
+          const clamped = Math.max(-maxPitch, Math.min(maxPitch, pitch));
+          const pct = (Math.abs(clamped) / maxPitch) * 50;
+          if (clamped >= 0) {
+            attitudePitchBar.style.left = '50%';
+            attitudePitchBar.style.width = `${pct}%`;
+          } else {
+            attitudePitchBar.style.left = `${50 - pct}%`;
+            attitudePitchBar.style.width = `${pct}%`;
+          }
+        } else {
+          attitudePitchBar.style.width = '0%';
+          attitudePitchBar.style.left = '50%';
+        }
+      }
+
+      // Roll level bar (-30 deg to +30 deg)
+      if (valAttitudeRoll) {
+        valAttitudeRoll.textContent = roll !== null ? `${roll >= 0 ? '+' : ''}${roll.toFixed(1)}°` : '--.-°';
+      }
+      if (attitudeRollBar) {
+        if (roll !== null) {
+          const maxRoll = 30.0;
+          const clamped = Math.max(-maxRoll, Math.min(maxRoll, roll));
+          const pct = (Math.abs(clamped) / maxRoll) * 50;
+          if (clamped >= 0) {
+            attitudeRollBar.style.left = '50%';
+            attitudeRollBar.style.width = `${pct}%`;
+          } else {
+            attitudeRollBar.style.left = `${50 - pct}%`;
+            attitudeRollBar.style.width = `${pct}%`;
+          }
+        } else {
+          attitudeRollBar.style.width = '0%';
+          attitudeRollBar.style.left = '50%';
+        }
+      }
+    }
+  }
+
+  // ---------------- Atmospheric Barometer ----------------
+  function updateEnvironment(env) {
+    if (!env) return;
+    const p = env.pressure_hpa !== null && env.pressure_hpa !== undefined ? parseFloat(env.pressure_hpa) : null;
+    if (valBaroHpa) {
+      valBaroHpa.textContent = p !== null ? p.toFixed(1) : '----.-';
+    }
+    if (valBaroTrend) {
+      valBaroTrend.textContent = env.trend || 'Steady';
+    }
+    if (miscBaroTrendBadge) {
+      miscBaroTrendBadge.textContent = (env.trend || 'STEADY').toUpperCase();
+    }
+  }
+
+  // ---------------- AIS Transponder & Target Directory ----------------
+  function updateAisDirectory(status, targets) {
+    cachedAisStatus = status;
+    cachedAisTargets = Array.isArray(targets) ? targets : [];
+
+    if (status) {
+      const isOnline = Boolean(status.online);
+      if (aisOwnStatusBadge) {
+        aisOwnStatusBadge.textContent = isOnline ? 'ONLINE · SOTDMA' : 'OFFLINE';
+        aisOwnStatusBadge.className = 'card-badge ' + (isOnline ? 'teal-badge' : 'gray-badge');
+      }
+      if (aisOwnHardware) aisOwnHardware.textContent = status.hardware || 'Class B SOTDMA (5W)';
+      if (aisOwnTxState) {
+        aisOwnTxState.textContent = isOnline ? 'Transmitting & Receiving' : 'No Signal / Offline';
+      }
+      if (aisTargetCountMetric) {
+        aisTargetCountMetric.textContent = `${status.target_count || cachedAisTargets.length} vessels`;
+      }
+      if (aisClosestDistance) {
+        const closest = status.closest_range_nm;
+        aisClosestDistance.textContent = closest !== null && closest !== undefined ? `${Number(closest).toFixed(2)} NM` : '--.- NM';
+      }
+
+      if (aisCountAll) aisCountAll.textContent = status.target_count || cachedAisTargets.length;
+      if (aisCountUnknown) aisCountUnknown.textContent = status.unknown_count || 0;
+      if (aisCountNamed) aisCountNamed.textContent = status.named_count || 0;
+    }
+
+    renderAisTargets();
+  }
+
+  function renderAisTargets() {
+    if (!aisTargetsList) return;
+    const targets = cachedAisTargets || [];
+
+    const filtered = targets.filter(t => {
+      if (activeAisFilter === 'unknown') return t.is_unknown;
+      if (activeAisFilter === 'named') return !t.is_unknown;
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      aisTargetsList.innerHTML = `
+        <div class="ais-empty-state">
+          <span>${targets.length === 0 ? 'Scanning VHF AIS frequencies... No vessels in range.' : 'No vessels match the selected filter.'}</span>
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    filtered.forEach((t, idx) => {
+      const isUnknown = Boolean(t.is_unknown);
+      const isClosest = idx === 0 && t.range_nm !== null && t.range_nm !== undefined;
+      const vesselName = (!isUnknown && t.vessel_name) ? t.vessel_name : (t.call_sign ? `Callsign ${t.call_sign}` : `MMSI ${t.mmsi}`);
+      const rangeStr = t.range_nm !== null && t.range_nm !== undefined ? Number(t.range_nm).toFixed(2) : '--.-';
+      const bearingStr = t.bearing_deg !== null && t.bearing_deg !== undefined ? `${Math.round(t.bearing_deg)}° ${getCardinalDirection(t.bearing_deg)}` : '---°';
+      const sogStr = t.sog_knots !== null && t.sog_knots !== undefined ? `${Number(t.sog_knots).toFixed(1)} kn` : '--.- kn';
+      const cogStr = t.cog_true !== null && t.cog_true !== undefined ? `${Math.round(t.cog_true)}°` : '---°';
+      const navStatus = t.nav_status || 'Underway';
+      const aisClass = t.ais_class ? `Class ${t.ais_class}` : 'AIS';
+      const ageStr = t.last_seen_sec !== null && t.last_seen_sec !== undefined ? `${t.last_seen_sec}s ago` : 'just now';
+
+      html += `
+        <div class="ais-target-card ${isUnknown ? 'is-unknown' : ''} ${isClosest ? 'is-closest' : ''}">
+          <div class="ais-card-header">
+            <div class="ais-card-title-wrap">
+              <span class="ais-vessel-name">${vesselName}</span>
+              ${isUnknown ? '<span class="ais-badge unknown-badge">UNKNOWN VESSEL</span>' : ''}
+              ${isClosest ? '<span class="ais-badge closest-badge">CLOSEST</span>' : ''}
+              <span class="ais-badge class-badge">${aisClass}</span>
+            </div>
+            <div class="ais-distance-hero">
+              <span class="ais-distance-val mono">${rangeStr}</span>
+              <span class="ais-distance-unit">NM</span>
+            </div>
+          </div>
+
+          <div class="ais-card-body">
+            <div class="ais-stat-item">
+              <span class="ais-stat-label">Navigation Status</span>
+              <span class="ais-stat-val"><strong>${navStatus}</strong></span>
+            </div>
+            <div class="ais-stat-item">
+              <span class="ais-stat-label">Bearing</span>
+              <span class="ais-stat-val mono">${bearingStr}</span>
+            </div>
+            <div class="ais-stat-item">
+              <span class="ais-stat-label">Speed &amp; Course</span>
+              <span class="ais-stat-val mono">${sogStr} · ${cogStr}</span>
+            </div>
+            <div class="ais-stat-item">
+              <span class="ais-stat-label">MMSI</span>
+              <span class="ais-stat-val mono">${t.mmsi || '--'}</span>
+            </div>
+          </div>
+
+          <div class="ais-card-footer">
+            <span>Coordinates: ${t.latitude !== null && t.longitude !== null && t.latitude !== undefined && t.longitude !== undefined ? `${Number(t.latitude).toFixed(4)}, ${Number(t.longitude).toFixed(4)}` : '--'}</span>
+            <span class="mono">Heard: ${ageStr}</span>
+          </div>
+        </div>
+      `;
+    });
+
+    aisTargetsList.innerHTML = html;
+  }
+
+  function setAisFilter(filter) {
+    if (!['all', 'unknown', 'named'].includes(filter)) filter = 'all';
+    activeAisFilter = filter;
+    if (btnAisFilterAll) btnAisFilterAll.classList.toggle('active', filter === 'all');
+    if (btnAisFilterUnknown) btnAisFilterUnknown.classList.toggle('active', filter === 'unknown');
+    if (btnAisFilterNamed) btnAisFilterNamed.classList.toggle('active', filter === 'named');
+    renderAisTargets();
+  }
+
+  if (btnAisFilterAll) btnAisFilterAll.addEventListener('click', () => setAisFilter('all'));
+  if (btnAisFilterUnknown) btnAisFilterUnknown.addEventListener('click', () => setAisFilter('unknown'));
+  if (btnAisFilterNamed) btnAisFilterNamed.addEventListener('click', () => setAisFilter('named'));
 
   // ---------------- MQTT Log Table ----------------
   function matchesFilter(topic, filter) {
@@ -885,7 +1274,19 @@
     if (snap.subsystems) {
       if (snap.subsystems['72v']) update72vSubsystem(snap.subsystems['72v']);
       if (snap.subsystems['12v']) update12vSubsystem(snap.subsystems['12v']);
-      if (snap.subsystems.gps) updateGpsSubsystem(snap.subsystems.gps);
+
+      if (snap.subsystems.gps_seatalkng) cachedGpsSeatalkng = snap.subsystems.gps_seatalkng;
+      if (snap.subsystems.gps_router) cachedGpsRouter = snap.subsystems.gps_router;
+      if (snap.subsystems.gps) cachedGps = snap.subsystems.gps;
+
+      renderGpsView();
+
+      if (snap.subsystems.seatalkng) {
+        const st = snap.subsystems.seatalkng;
+        if (st.heading || st.attitude) updateSeaTalkNgAttitudeAndHeading(st.heading, st.attitude);
+        if (st.environment) updateEnvironment(st.environment);
+        if (st.ais_status || st.ais_targets) updateAisDirectory(st.ais_status, st.ais_targets);
+      }
     }
 
     // ---------------- Alarms Rendering ----------------
