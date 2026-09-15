@@ -60,4 +60,48 @@ df_12v <- dbGetQuery(con, "
 message("\nRetrieved ", nrow(df_12v), " records from telemetry_12v")
 print(head(df_12v, 10))
 
+# 4. Query SeaTalkNG Vessel Telemetry (Attitude, Heading, GPS)
+df_stng <- dbGetQuery(con, "
+  SELECT 
+    timestamp,
+    heading_deg,
+    heading_ref,
+    pitch_deg,
+    roll_deg,
+    rate_of_turn_dps,
+    pressure_hpa,
+    pilot_mode,
+    latitude,
+    longitude,
+    sog_knots,
+    satellites,
+    ais_target_count
+  FROM telemetry_seatalkng
+  ORDER BY epoch_ms DESC
+  LIMIT 500
+")
+
+message("\nRetrieved ", nrow(df_stng), " records from telemetry_seatalkng")
+print(head(df_stng, 5))
+
+# 5. Query AIS Targets in VHF Range
+df_ais <- dbGetQuery(con, "
+  SELECT 
+    timestamp,
+    mmsi,
+    vessel_name,
+    ais_class,
+    range_nm,
+    bearing_deg,
+    sog_knots,
+    cog_true,
+    nav_status
+  FROM telemetry_ais
+  ORDER BY epoch_ms DESC
+  LIMIT 500
+")
+
+message("\nRetrieved ", nrow(df_ais), " records from telemetry_ais")
+print(head(df_ais, 5))
+
 dbDisconnect(con)

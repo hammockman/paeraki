@@ -45,3 +45,45 @@ query_12v = """
 df_12v = DBInterface.execute(db, query_12v) |> DataFrame
 println("\n=== Recent 12V House/Solar Telemetry ===")
 println(first(df_12v, 10))
+
+# Query recent SeaTalkNG telemetry
+query_stng = """
+    SELECT 
+        timestamp,
+        heading_deg,
+        heading_ref,
+        pitch_deg,
+        roll_deg,
+        latitude,
+        longitude,
+        sog_knots,
+        satellites,
+        pilot_mode
+    FROM telemetry_seatalkng
+    ORDER BY epoch_ms DESC
+    LIMIT 20
+"""
+
+df_stng = DBInterface.execute(db, query_stng) |> DataFrame
+println("\n=== Recent SeaTalkNG Vessel Telemetry ===")
+println(first(df_stng, 10))
+
+# Query recent AIS targets
+query_ais = """
+    SELECT 
+        timestamp,
+        mmsi,
+        vessel_name,
+        ais_class,
+        range_nm,
+        bearing_deg,
+        sog_knots,
+        nav_status
+    FROM telemetry_ais
+    ORDER BY epoch_ms DESC
+    LIMIT 20
+"""
+
+df_ais = DBInterface.execute(db, query_ais) |> DataFrame
+println("\n=== Recent AIS Targets in Range ===")
+println(first(df_ais, 10))

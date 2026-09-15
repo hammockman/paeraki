@@ -24,7 +24,9 @@ def main():
     p_count = conn.execute("SELECT COUNT(*) FROM packets").fetchone()[0]
     t72_count = conn.execute("SELECT COUNT(*) FROM telemetry_72v").fetchone()[0]
     t12_count = conn.execute("SELECT COUNT(*) FROM telemetry_12v").fetchone()[0]
-    print(f"Total packets: {p_count} | 72V rows: {t72_count} | 12V rows: {t12_count}\n")
+    stng_count = conn.execute("SELECT COUNT(*) FROM telemetry_seatalkng").fetchone()[0]
+    ais_count = conn.execute("SELECT COUNT(*) FROM telemetry_ais").fetchone()[0]
+    print(f"Total packets: {p_count} | 72V: {t72_count} | 12V: {t12_count} | SeaTalkNG: {stng_count} | AIS: {ais_count}\n")
 
     # 2. Latest 72V telemetry
     print("=== Latest 72V Propulsion Telemetry ===")
@@ -47,6 +49,28 @@ def main():
     """)
     for row in cursor.fetchall():
         print(f"[{row['timestamp'][:19]}] Batt: {row['battery_voltage']:.2f}V | Solar: {row['solar_power']}W ({row['solar_voltage']}V / {row['solar_current']}A) | {row['charging_status']}")
+
+    # 4. Latest SeaTalkNG Navigation & Attitude
+    print("\n=== Latest SeaTalkNG Vessel Telemetry ===")
+    cursor = conn.execute("""
+        SELECT timestamp, heading_deg, heading_ref, pitch_deg, roll_deg, latitude, longitude, sog_knots, satellites, pilot_mode
+        FROM telemetry_seatalkng
+        ORDER BY epoch_ms DESC
+        LIMIT 5
+    """)
+    for row in cursor.fetchall():
+        print(f"[{row['timestamp'][:19]}] Hdg: {row['heading_deg']:.1f}° ({row['heading_ref']}) | Pitch: {row['pitch_deg']:+.2f}° | Roll: {row['roll_deg']:+.2f}° | Lat: {row['latitude']:.5f} | Lon: {row['longitude']:.5f} | Sats: {row['satellites']} | Pilot: {row['pilot_mode']}")
+
+    # 5. Latest AIS Targets
+    print("\n=== Latest AIS Targets in Range ===")
+    cursor = conn.execute("""
+        SELECT timestamp, mmsi, vessel_name, ais_class, range_nm, bearing_deg, sog_knots, cog_true
+        FROM telemetry_ais
+        ORDER BY epoch_ms DESC
+        LIMIT 5
+    """)
+    for row in cursor.fetchall():
+        print(f"[{row['timestamp'][:19]}] MMSI {row['mmsi']} ({row['vessel_name'] or 'Unknown'}) | Cls {row['ais_class']} | Range: {row['range_nm']} NM | Brg: {row['bearing_deg']}° | SOG: {row['sog_knots']} kt")
 
     conn.close()
 

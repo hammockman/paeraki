@@ -139,6 +139,58 @@ CREATE TABLE IF NOT EXISTS battery_capacity_history (
 CREATE INDEX IF NOT EXISTS idx_cap_history_epoch ON battery_capacity_history(epoch_ms);
 CREATE INDEX IF NOT EXISTS idx_cap_history_pack ON battery_capacity_history(pack_name, epoch_ms);
 
+-- 7. Structured SeaTalkNG & NMEA 2000 Vessel Telemetry
+CREATE TABLE IF NOT EXISTS telemetry_seatalkng (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    epoch_ms INTEGER NOT NULL,
+    heading_deg REAL,
+    heading_ref TEXT,
+    variation_deg REAL,
+    pitch_deg REAL,
+    roll_deg REAL,
+    yaw_deg REAL,
+    rate_of_turn_dps REAL,
+    rudder_deg REAL,
+    pressure_hpa REAL,
+    pilot_mode TEXT,
+    latitude REAL,
+    longitude REAL,
+    sog_knots REAL,
+    cog_true REAL,
+    satellites INTEGER,
+    hdop REAL,
+    altitude_m REAL,
+    ais_target_count INTEGER,
+    raw_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_seatalkng_epoch ON telemetry_seatalkng(epoch_ms);
+
+-- 8. Structured AIS Targets (Class A & B)
+CREATE TABLE IF NOT EXISTS telemetry_ais (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    epoch_ms INTEGER NOT NULL,
+    mmsi INTEGER NOT NULL,
+    vessel_name TEXT,
+    call_sign TEXT,
+    ship_type INTEGER,
+    ais_class TEXT,
+    latitude REAL,
+    longitude REAL,
+    sog_knots REAL,
+    cog_true REAL,
+    true_heading REAL,
+    nav_status TEXT,
+    range_nm REAL,
+    bearing_deg REAL,
+    raw_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ais_epoch ON telemetry_ais(epoch_ms);
+CREATE INDEX IF NOT EXISTS idx_ais_mmsi ON telemetry_ais(mmsi, epoch_ms);
+
 -- Convenient views for data analysis
 CREATE VIEW IF NOT EXISTS v_recent_72v AS
     SELECT * FROM telemetry_72v ORDER BY epoch_ms DESC LIMIT 500;
@@ -157,6 +209,12 @@ CREATE VIEW IF NOT EXISTS v_recent_packets AS
 
 CREATE VIEW IF NOT EXISTS v_recent_capacity AS
     SELECT * FROM battery_capacity_history ORDER BY epoch_ms DESC LIMIT 100;
+
+CREATE VIEW IF NOT EXISTS v_recent_seatalkng AS
+    SELECT * FROM telemetry_seatalkng ORDER BY epoch_ms DESC LIMIT 500;
+
+CREATE VIEW IF NOT EXISTS v_recent_ais AS
+    SELECT * FROM telemetry_ais ORDER BY epoch_ms DESC LIMIT 500;
 """
 
 
@@ -174,6 +232,8 @@ class TelemetryDatabase:
         self._gps_batch: list[tuple] = []
         self._charger_batch: list[tuple] = []
         self._capacity_batch: list[tuple] = []
+        self._seatalkng_batch: list[tuple] = []
+        self._ais_batch: list[tuple] = []
 
         self._conn: sqlite3.Connection | None = None
         self._init_db()
@@ -252,6 +312,18 @@ class TelemetryDatabase:
         # Check for Capacity update payload
         if (topic in ("paeraki/battery/72v/capacity", "paeraki/battery/12v/capacity") or topic.startswith("paeraki/battery/")) and topic.endswith("/capacity") and isinstance(parsed_json, dict):
             self._record_capacity(parsed_json, timestamp_iso, epoch_ms, topic)
+
+        # Check for SeaTalkNG consolidated state payload
+        if topic == "paeraki/seatalkng/state" and isinstance(parsed_json, dict):
+            self._record_seatalkng(parsed_json, timestamp_iso, epoch_ms)
+
+        # Check for AIS target payload
+        if topic.startswith("paeraki/seatalkng/ais/target/") and isinstance(parsed_json, dict):
+            self._record_ais(parsed_json, timestamp_iso, epoch_ms)
+        elif topic == "paeraki/seatalkng/ais/targets" and isinstance(parsed_json, list):
+            for t in parsed_json:
+                if isinstance(t, dict):
+                    self._record_ais(t, timestamp_iso, epoch_ms)
 
         # Check batch threshold
         if len(self._raw_batch) >= self.batch_size:
@@ -414,6 +486,109 @@ class TelemetryDatabase:
         self._record_capacity(data, timestamp_iso, epoch_ms, topic)
         self.flush()
 
+    def _record_seatalkng(self, data: dict, timestamp_iso: str, epoch_ms: int):
+        heading = data.get("heading_deg")
+        ref = data.get("heading_reference")
+        var = data.get("variation_deg")
+        pitch = data.get("pitch_deg")
+        roll = data.get("roll_deg")
+        yaw = data.get("yaw_deg")
+        rot = data.get("rate_of_turn_dps")
+        rudder = data.get("rudder_deg")
+        press = data.get("pressure_hpa")
+        pilot = data.get("pilot_mode")
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        sog = data.get("sog_knots")
+        cog = data.get("cog_true")
+        sats = data.get("satellites")
+        hdop = data.get("hdop")
+        alt = data.get("altitude_m")
+        ais_count = data.get("ais_target_count")
+
+        row = (
+            timestamp_iso,
+            epoch_ms,
+            heading,
+            ref,
+            var,
+            pitch,
+            roll,
+            yaw,
+            rot,
+            rudder,
+            press,
+            pilot,
+            lat,
+            lon,
+            sog,
+            cog,
+            sats,
+            hdop,
+            alt,
+            ais_count,
+            json.dumps(data)
+        )
+        self._seatalkng_batch.append(row)
+
+        # Also keep telemetry_gps table updated with high-precision SeaTalkNG coordinates
+        if lat is not None and lon is not None:
+            lat_hemi = "S" if lat < 0 else "N"
+            lat_deg = int(abs(lat))
+            lat_min = (abs(lat) - lat_deg) * 60.0
+            lat_naut = f"{lat_deg}°{lat_min:06.3f}' {lat_hemi}"
+
+            lon_hemi = "W" if lon < 0 else "E"
+            lon_deg = int(abs(lon))
+            lon_min = (abs(lon) - lon_deg) * 60.0
+            lon_naut = f"{lon_deg}°{lon_min:06.3f}' {lon_hemi}"
+
+            sog_k = sog or 0.0
+            gps_row = (
+                timestamp_iso,
+                epoch_ms,
+                1,
+                "GNSS 3D (SeaTalkNG)",
+                1,
+                lat,
+                lon,
+                lat_naut,
+                lon_naut,
+                sog_k,
+                round(sog_k * 1.852, 2),
+                round(sog_k * 0.514444, 2),
+                cog,
+                alt,
+                sats,
+                hdop,
+                "SeaTalkNG PGN 129029"
+            )
+            self._gps_batch.append(gps_row)
+
+    def _record_ais(self, data: dict, timestamp_iso: str, epoch_ms: int):
+        mmsi = data.get("mmsi")
+        if not mmsi:
+            return
+        row = (
+            timestamp_iso,
+            epoch_ms,
+            int(mmsi),
+            data.get("vessel_name") or "",
+            data.get("call_sign") or "",
+            data.get("ship_type"),
+            data.get("ais_class") or "B",
+            data.get("latitude"),
+            data.get("longitude"),
+            data.get("sog_knots"),
+            data.get("cog_true"),
+            data.get("true_heading"),
+            data.get("nav_status"),
+            data.get("range_nm"),
+            data.get("bearing_deg"),
+            json.dumps(data)
+        )
+        self._ais_batch.append(row)
+
     def flush(self) -> int:
         """Flushes all pending buffered records to SQLite in a single transaction."""
         if (
@@ -423,6 +598,8 @@ class TelemetryDatabase:
             and not self._gps_batch
             and not self._charger_batch
             and not self._capacity_batch
+            and not self._seatalkng_batch
+            and not self._ais_batch
         ):
             return 0
 
@@ -497,11 +674,50 @@ class TelemetryDatabase:
                     )
                     self._capacity_batch.clear()
 
+                if self._seatalkng_batch:
+                    conn.executemany(
+                        """INSERT INTO telemetry_seatalkng (
+                            timestamp, epoch_ms, heading_deg, heading_ref, variation_deg,
+                            pitch_deg, roll_deg, yaw_deg, rate_of_turn_dps, rudder_deg,
+                            pressure_hpa, pilot_mode, latitude, longitude, sog_knots,
+                            cog_true, satellites, hdop, altitude_m, ais_target_count, raw_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        self._seatalkng_batch
+                    )
+                    self._seatalkng_batch.clear()
+
+                if self._ais_batch:
+                    conn.executemany(
+                        """INSERT INTO telemetry_ais (
+                            timestamp, epoch_ms, mmsi, vessel_name, call_sign,
+                            ship_type, ais_class, latitude, longitude, sog_knots,
+                            cog_true, true_heading, nav_status, range_nm, bearing_deg, raw_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        self._ais_batch
+                    )
+                    self._ais_batch.clear()
+
             logger.debug("Flushed %d packets to SQLite", total_flushed)
             return total_flushed
         except Exception as e:
             logger.error("Failed to flush records to SQLite: %s", e)
             return 0
+
+    def query_recent_seatalkng(self, limit: int = 100) -> list[dict]:
+        """Returns recent SeaTalkNG vessel telemetry records."""
+        conn = self._get_connection()
+        cursor = conn.execute(
+            "SELECT * FROM telemetry_seatalkng ORDER BY epoch_ms DESC LIMIT ?", (limit,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def query_recent_ais(self, limit: int = 100) -> list[dict]:
+        """Returns recent AIS vessel position and target records."""
+        conn = self._get_connection()
+        cursor = conn.execute(
+            "SELECT * FROM telemetry_ais ORDER BY epoch_ms DESC LIMIT ?", (limit,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
 
     def close(self):
         self.flush()
