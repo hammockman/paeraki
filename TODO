@@ -1,9 +1,6 @@
 - fix poor battery charger performance (BF_TECH, Hexapower, 192.168.4.1) - hunting, not charging at full 20A
   - logging charger state???
 - music player setup (see TODO.music)
-- fix poor battery charger performance (BF_TECH, Hexapower, 192.168.4.1) - hunting, not charging at full 20A
-  - logging charger state???
-- music player setup (see TODO.music)
 - [DONE] currently the 72v pack is assummed to have a 200Ah capacity. if we kept track of all charge/discharge increments, we should be able to get a better estimate of the true capacity and monitor it over long run (i.e. capacity decrease over months/years)
   - Implemented in logger/capacity_analyzer.py, battery_capacity_history table in paeraki.db, and dynamic MQTT retained communication
 - [DONE] dashboard
@@ -24,5 +21,22 @@
 - integration with 12V load distribution/relays/fuses (wifi???)
   - measure current draw of individual loads
   - implement ability to switch loads on/off (via wifi???)
+    - interior lights
+    - nav lights
+    - anchor light
+    - fridge
+    - 12v inverter (~60A!!!)
+    - vhf(s), ais
+    - router
+    - computers (look, sing, ...)
+    - usb outlets
+    - stereo & amp
+    - water pump
+    - bilge pumps + level monitor (permanently on but still measure current)
+    - auto pilot
+    - sensors (ray marine compass, wind, depth)
 - [DONE] alarms (via SMS or email)
-  - [DONE] 12V 50% capacity (Implemented in modular alarms/watch.py daemon with SMS via Teltonika router)
+  - [DONE] 12V 50% capacity (Implemented in modular alarms/watch.py daemon with SMS via Teltonika router)\
+- control auto pilot from android app
+- reduce the load on "look"
+  - move the dashboard server to "sing"

@@ -243,6 +243,7 @@ class SeaTalkNgService:
         self.mqtt_connected = asyncio.Event()
         self.total_frames_received = 0
         self.total_packets_decoded = 0
+        self._consecutive_publish_errors = 0
 
     async def run(self):
         logger.info(
@@ -269,20 +270,36 @@ class SeaTalkNgService:
 
     async def _mqtt_connection_loop(self):
         """Maintains persistent connection to Mosquitto broker."""
+        consecutive_mqtt_reconnects = 0
+        max_mqtt_reconnects = 10
         while True:
             try:
                 logger.info("Connecting to MQTT broker at %s:%d...", self.broker_host, self.broker_port)
                 async with aiomqtt.Client(hostname=self.broker_host, port=self.broker_port, identifier="paeraki_seatalkng") as client:
                     self.mqtt_client = client
                     self.mqtt_connected.set()
+                    self._consecutive_publish_errors = 0
+                    consecutive_mqtt_reconnects = 0
                     logger.info("Connected to MQTT broker.")
                     # Keep connection alive until disconnection
                     while True:
                         await asyncio.sleep(1.0)
             except Exception as e:
-                logger.warning("MQTT connection lost: %s. Reconnecting in 3s...", e)
+                consecutive_mqtt_reconnects += 1
+                logger.warning(
+                    "MQTT connection lost (%d/%d): %s. Reconnecting in 3s...",
+                    consecutive_mqtt_reconnects,
+                    max_mqtt_reconnects,
+                    e,
+                )
                 self.mqtt_connected.clear()
                 self.mqtt_client = None
+                if consecutive_mqtt_reconnects >= max_mqtt_reconnects:
+                    logger.critical(
+                        "MQTT broker connection failed %d consecutive times. Exiting to trigger systemd restart.",
+                        consecutive_mqtt_reconnects,
+                    )
+                    sys.exit(1)
                 await asyncio.sleep(3.0)
 
     async def _publish(self, topic: str, payload: str):
@@ -291,8 +308,21 @@ class SeaTalkNgService:
             return
         try:
             await self.mqtt_client.publish(topic, payload)
+            self._consecutive_publish_errors = 0
         except Exception as e:
-            logger.debug("Failed publishing to %s: %s", topic, e)
+            self._consecutive_publish_errors += 1
+            logger.warning(
+                "Failed publishing to %s (%d/10): %s",
+                topic,
+                self._consecutive_publish_errors,
+                e,
+            )
+            if self._consecutive_publish_errors >= 10:
+                logger.critical(
+                    "Too many consecutive MQTT publish failures (%d). Exiting to trigger systemd restart.",
+                    self._consecutive_publish_errors,
+                )
+                sys.exit(1)
 
     async def _tcp_server_loop(self):
         """Runs the TCP server accepting connections from USR-CAN115."""

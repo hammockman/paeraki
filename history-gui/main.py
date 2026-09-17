@@ -33,6 +33,7 @@ from styles import DARK_THEME_QSS
 from time_bar import TimeBar
 from widgets.tab_12v import Tab12V
 from widgets.tab_72v import Tab72V
+from widgets.tab_explorer import TabExplorer
 from widgets.tab_gps import TabGPS
 from widgets.tab_packets import TabPackets
 from widgets.tab_sql import TabSQL
@@ -44,7 +45,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Paeraki • Vessel Telemetry Historian")
-        self.resize(1440, 920)
+        self.resize(1560, 940)
         self.setMinimumSize(1024, 680)
 
         self.threadpool = QThreadPool.globalInstance()
@@ -102,18 +103,21 @@ class MainWindow(QMainWindow):
 
         # 3. Main Navigation TabWidget
         self.tabs = QTabWidget(self)
+        self.tab_explorer = TabExplorer(self)
         self.tab_72v = Tab72V(self)
         self.tab_12v = Tab12V(self)
         self.tab_gps = TabGPS(self)
         self.tab_packets = TabPackets(self)
         self.tab_sql = TabSQL(self)
 
+        self.tabs.addTab(self.tab_explorer, "📊  Metric Explorer")
         self.tabs.addTab(self.tab_72v, "⚡  72V Propulsion")
         self.tabs.addTab(self.tab_12v, "☀  12V House & Solar")
         self.tabs.addTab(self.tab_gps, "🧭  GPS Navigation")
         self.tabs.addTab(self.tab_packets, "📦  MQTT Packets")
         self.tabs.addTab(self.tab_sql, "💻  SQL Workbench")
 
+        self.tab_explorer.status_message.connect(self._on_explorer_status)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         root_layout.addWidget(self.tabs, stretch=1)
 
@@ -144,6 +148,7 @@ class MainWindow(QMainWindow):
         tot_72v = counts.get("telemetry_72v", 0)
         tot_12v = counts.get("telemetry_12v", 0)
         tot_gps = counts.get("telemetry_gps", 0)
+        tot_stng = counts.get("telemetry_seatalkng", 0)
         tot_charger = counts.get("telemetry_charger", 0)
 
         meta_parts = [
@@ -153,6 +158,8 @@ class MainWindow(QMainWindow):
             f"{tot_12v:,} 12V",
             f"{tot_gps:,} GPS",
         ]
+        if tot_stng:
+            meta_parts.append(f"{tot_stng:,} SeaTalkNG")
         if tot_charger:
             meta_parts.append(f"{tot_charger:,} charger")
 
@@ -176,7 +183,9 @@ class MainWindow(QMainWindow):
         curr_tab = self.tabs.currentIndex()
         self.time_bar.set_status_text("Querying...")
 
-        if curr_tab == 0:  # 72V
+        if curr_tab == 0:  # Metric Explorer
+            self.tab_explorer.set_time_range(self.start_ms, self.end_ms)
+        elif curr_tab == 1:  # 72V
             worker = db.DbQueryWorker(db.query_72v, self.start_ms, self.end_ms, 8000)
             worker.signals.result.connect(self._on_72v_loaded)
             self.threadpool.start(worker)
@@ -184,17 +193,21 @@ class MainWindow(QMainWindow):
             charger_worker = db.DbQueryWorker(db.query_charger, self.start_ms, self.end_ms, 8000)
             charger_worker.signals.result.connect(self.tab_72v.update_charger_data)
             self.threadpool.start(charger_worker)
-        elif curr_tab == 1:  # 12V
+        elif curr_tab == 2:  # 12V
             worker = db.DbQueryWorker(db.query_12v, self.start_ms, self.end_ms, 8000)
             worker.signals.result.connect(self._on_12v_loaded)
             self.threadpool.start(worker)
-        elif curr_tab == 2:  # GPS
+        elif curr_tab == 3:  # GPS
             worker = db.DbQueryWorker(db.query_gps, self.start_ms, self.end_ms, 8000)
             worker.signals.result.connect(self._on_gps_loaded)
             self.threadpool.start(worker)
-        elif curr_tab == 3:  # Packets
+        elif curr_tab == 4:  # Packets
             self.tab_packets.set_time_range(self.start_ms, self.end_ms)
             self.time_bar.set_status_text("Ready")
+
+    def _on_explorer_status(self, msg: str):
+        self.status.showMessage(msg)
+        self.time_bar.set_status_text(msg)
 
     def _on_72v_loaded(self, rows):
         self.tab_72v.update_data(rows)

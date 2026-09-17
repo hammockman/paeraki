@@ -26,16 +26,103 @@ try:
 except ImportError:
     aiomqtt = None
 
-from alarms.dispatchers import ConsoleDispatcher, MqttDispatcher, SmsDispatcher
-from alarms.rules import AlarmEngine, Low12VCapacityRule, Low72VBatteryRule, BatteryOverheatRule
+from alarms.dispatchers import ConsoleDispatcher, MqttDispatcher, SmsDispatcher, EmailDispatcher
+from alarms.rules import (
+    AlarmEngine,
+    Low12VCapacityRule,
+    Low72VBatteryRule,
+    BatteryOverheatRule,
+    ServiceRestartLoopRule,
+)
 
 logger = logging.getLogger("paeraki.alarms")
+
+MONITORED_SERVICES = [
+    ("12v", "watch_12v.service", "12V Solar Monitor"),
+    ("72v", "watch_72v.service", "72V BMS Monitor"),
+    ("gps", "watch_gps.service", "GPS Navigation Monitor"),
+    ("seatalkng", "paeraki_seatalkng.service", "SeaTalkNG Bus Monitor"),
+]
+
+
+_systemd_query_lock = asyncio.Lock()
+
+
+async def query_systemd_services(units: list[str]) -> dict[str, dict]:
+    """Queries systemd process metrics for target service units via non-blocking systemctl."""
+    if _systemd_query_lock.locked():
+        return {}
+    async with _systemd_query_lock:
+        cmd = [
+            "systemctl", "show", *units,
+            "-p", "Id",
+            "-p", "ActiveState",
+            "-p", "SubState",
+            "-p", "NRestarts",
+            "-p", "ExecMainStatus",
+            "-p", "ExecMainExitTimestamp",
+            "-p", "ActiveEnterTimestamp",
+        ]
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=4.0)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+                logger.debug("Timeout querying systemctl show")
+                return {}
+
+            lines = stdout.decode("utf-8").splitlines()
+            services = {}
+            curr = {}
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    if "id" in curr:
+                        services[curr["id"]] = curr
+                        curr = {}
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    k_norm = k.strip().lower()
+                    v_norm = v.strip()
+                    if k_norm in ("nrestarts", "execmainstatus"):
+                        try:
+                            curr[k_norm] = int(v_norm)
+                        except ValueError:
+                            curr[k_norm] = 0
+                    else:
+                        curr[k_norm] = v_norm
+            if "id" in curr:
+                services[curr["id"]] = curr
+            return services
+        except Exception as e:
+            if proc:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+            logger.debug("Could not query systemd status: %s", e)
+            return {}
 
 
 async def run_alarm_monitor(
     broker: str,
     port: int,
     phone_number: str | None = None,
+    email: str | None = None,
+    smtp_host: str = "192.168.1.1",
+    smtp_port: int = 25,
     router_ip: str = "192.168.1.1",
     eval_interval: float = 1.0,
     dry_run: bool = False,
@@ -62,6 +149,10 @@ async def run_alarm_monitor(
         Low12VCapacityRule(debounce_sec=2.0 if mock else 10.0),
         Low72VBatteryRule(debounce_sec=2.0 if mock else 10.0),
         BatteryOverheatRule(debounce_sec=2.0 if mock else 5.0),
+        ServiceRestartLoopRule("12v", "watch_12v.service", "12V Solar Monitor", failure_threshold=5),
+        ServiceRestartLoopRule("72v", "watch_72v.service", "72V BMS Monitor", failure_threshold=5),
+        ServiceRestartLoopRule("gps", "watch_gps.service", "GPS Navigation Monitor", failure_threshold=5),
+        ServiceRestartLoopRule("seatalkng", "paeraki_seatalkng.service", "SeaTalkNG Bus Monitor", failure_threshold=5),
     ])
 
     console_disp = ConsoleDispatcher()
@@ -70,10 +161,17 @@ async def run_alarm_monitor(
         router_ip=router_ip,
         dry_run=dry_run,
     )
+    email_disp = EmailDispatcher(
+        recipient_email=email,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        router_ip=router_ip,
+        dry_run=dry_run,
+    )
 
     if mock:
         logger.info("Running in MOCK mode. Simulating telemetry scenarios...")
-        await _run_mock_loop(engine, [console_disp, sms_disp], shutdown_event, eval_interval, once)
+        await _run_mock_loop(engine, [console_disp, sms_disp, email_disp], shutdown_event, eval_interval, once)
         return
 
     while not shutdown_event.is_set():
@@ -84,18 +182,28 @@ async def run_alarm_monitor(
                 await client.subscribe("paeraki/#")
 
                 mqtt_disp = MqttDispatcher(client)
-                dispatchers = [console_disp, mqtt_disp, sms_disp]
+                dispatchers = [console_disp, mqtt_disp, sms_disp, email_disp]
 
                 # Background evaluation task
                 async def eval_loop():
                     last_status_publish = 0.0
+                    last_systemd_poll = 0.0
+                    unit_names = [u for _, u, _ in MONITORED_SERVICES]
                     while not shutdown_event.is_set():
                         try:
                             await asyncio.wait_for(shutdown_event.wait(), timeout=eval_interval)
                         except asyncio.TimeoutError:
+                            now = asyncio.get_event_loop().time()
+
+                            # Periodic systemd status query every 10.0s
+                            if not mock and (now - last_systemd_poll) >= 10.0:
+                                svc_data = await query_systemd_services(unit_names)
+                                if svc_data:
+                                    engine.update_systemd(svc_data)
+                                last_systemd_poll = now
+
                             events = engine.evaluate()
                             status = engine.get_status()
-                            now = asyncio.get_event_loop().time()
                             for ev in events:
                                 for d in dispatchers:
                                     await d.dispatch(ev, status)
@@ -249,9 +357,12 @@ def main():
     parser.add_argument("--broker", default="192.168.1.1", help="Paeraki MQTT Broker IP (default: 192.168.1.1)")
     parser.add_argument("--port", type=int, default=1883, help="MQTT Broker port (default: 1883)")
     parser.add_argument("--phone", default=None, help="Recipient phone number for SMS alerts via Teltonika router")
+    parser.add_argument("--email", default=None, help="Recipient email address for alarms via Teltonika relay")
+    parser.add_argument("--smtp-host", default="192.168.1.1", help="SMTP relay host (default: 192.168.1.1)")
+    parser.add_argument("--smtp-port", type=int, default=25, help="SMTP relay port (default: 25)")
     parser.add_argument("--router-ip", default="192.168.1.1", help="Teltonika router IP (default: 192.168.1.1)")
     parser.add_argument("--interval", type=float, default=1.0, help="Evaluation interval in seconds (default: 1.0s)")
-    parser.add_argument("--dry-run", action="store_true", help="Log simulated SMS instead of running SSH gsmctl")
+    parser.add_argument("--dry-run", action="store_true", help="Log simulated SMS/email instead of sending")
     parser.add_argument("--mock", action="store_true", help="Run simulated telemetry scenario")
     parser.add_argument("--once", action="store_true", help="Run single evaluation cycle and exit")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Log level")
@@ -266,6 +377,9 @@ def main():
         broker=args.broker,
         port=args.port,
         phone_number=args.phone,
+        email=args.email,
+        smtp_host=args.smtp_host,
+        smtp_port=args.smtp_port,
         router_ip=args.router_ip,
         eval_interval=args.interval,
         dry_run=args.dry_run,

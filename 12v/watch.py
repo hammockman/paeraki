@@ -141,6 +141,7 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Simulate data without connecting to BLE")
     parser.add_argument("--once", action="store_true", help="Collect and publish one reading, then exit")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Log level")
+    parser.add_argument("--max-retries", type=int, default=8, help="Maximum consecutive BLE connection/read failures before exiting to let systemd restart (default: 8, 0 to disable)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -186,11 +187,14 @@ async def main():
         return
 
     # Live BLE Loop
+    consecutive_mqtt_failures = 0
     while not shutdown_event.is_set():
         try:
             logger.info("Connecting to MQTT broker %s:%d...", args.broker, args.port)
             async with aiomqtt.Client(args.broker, port=args.port) as mqtt_client:
                 logger.info("Connected to MQTT broker")
+                consecutive_mqtt_failures = 0
+                consecutive_ble_failures = 0
 
                 while not shutdown_event.is_set():
                     client = EnhancedModbusClient(slave_address=0xFF)
@@ -206,6 +210,7 @@ async def main():
                         while not shutdown_event.is_set():
                             telemetry = await read_controller_telemetry(client)
                             await publish_12v_telemetry(mqtt_client, telemetry)
+                            consecutive_ble_failures = 0
                             logger.info(
                                 "12V Live: Batt %sV (%s%%) | PV %sV, %sW | Load %sV, %sA (%sW) | Temp Ctrl %s°C, Batt %s°C | Status %s",
                                 telemetry["battery_voltage"],
@@ -233,7 +238,19 @@ async def main():
                         logger.warning("MQTT error during 12V telemetry publish: %s. Reconnecting to MQTT broker...", mqtt_publish_err)
                         break
                     except Exception as ble_err:
-                        logger.warning("Renogy BLE communication error: %s. Retrying in 5s...", ble_err)
+                        consecutive_ble_failures += 1
+                        logger.warning(
+                            "Renogy BLE communication error (%d/%d): %s. Retrying in 5s...",
+                            consecutive_ble_failures,
+                            args.max_retries,
+                            ble_err,
+                        )
+                        if args.max_retries > 0 and consecutive_ble_failures >= args.max_retries:
+                            logger.critical(
+                                "Renogy BLE failed %d consecutive times. Exiting process to trigger systemd restart.",
+                                consecutive_ble_failures,
+                            )
+                            sys.exit(1)
                         if args.once:
                             shutdown_event.set()
                             break
@@ -249,7 +266,11 @@ async def main():
                                 pass
 
         except Exception as mqtt_err:
-            logger.error("MQTT connection error: %s. Retrying in 5s...", mqtt_err)
+            consecutive_mqtt_failures += 1
+            logger.error("MQTT connection error (%d/10): %s. Retrying in 5s...", consecutive_mqtt_failures, mqtt_err)
+            if consecutive_mqtt_failures >= 10:
+                logger.critical("MQTT broker connection failed %d consecutive times. Exiting to trigger systemd restart.", consecutive_mqtt_failures)
+                sys.exit(1)
             try:
                 await asyncio.wait_for(shutdown_event.wait(), timeout=5.0)
             except asyncio.TimeoutError:

@@ -1,13 +1,15 @@
 [Unit]
 Description=Paeraki 12V Renogy Solar Telemetry Collector
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 WorkingDirectory=/home/jh/paeraki
 ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/12v/watch.py --broker 192.168.1.1 --address D8:B6:73:BE:8F:BF --interval 2.0
 Restart=always
-RestartSec=5
+RestartSec=15s
 User=jh
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

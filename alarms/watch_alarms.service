@@ -1,13 +1,15 @@
 [Unit]
 Description=Paeraki Vessel Alarms and Notification Daemon
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 WorkingDirectory=/home/jh/paeraki
-ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/alarms/watch.py --broker 192.168.1.1 --interval 1.0
+ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/alarms/watch.py --broker 192.168.1.1 --interval 1.0 --phone +64274461297 --email jjharrington@gmail.com
 Restart=always
-RestartSec=5
+RestartSec=15s
 User=jh
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

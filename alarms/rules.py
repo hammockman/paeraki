@@ -95,6 +95,7 @@ class AlarmRule:
         and returns an AlarmEvent on state transition or notification trigger.
         """
         now = now_epoch if now_epoch is not None else datetime.now(timezone.utc).timestamp()
+        self._current_eval_time = now
         iso_now = datetime.fromtimestamp(now, tz=timezone.utc).isoformat()
         epoch_ms = int(now * 1000)
 
@@ -417,6 +418,130 @@ class BatteryOverheatRule(AlarmRule):
         return False, ""
 
 
+class ServiceRestartLoopRule(AlarmRule):
+    """
+    Monitors a specific systemd service on 'look' for crash-loop / restart-loop conditions.
+    Trips into ALARM (CRITICAL) if the service fails to start or exits with error
+    more than failure_threshold times in a row.
+    Hysteresis recovery occurs once the service runs stably without interruption
+    for recovery_uptime_sec (default: 60s) or receives live telemetry.
+    """
+
+    def __init__(
+        self,
+        service_id: str,
+        service_unit: str,
+        display_name: str,
+        failure_threshold: int = 5,
+        recovery_uptime_sec: float = 60.0,
+        debounce_sec: float = 0.0,
+        cooldown_sec: float = 1800.0,
+    ):
+        super().__init__(
+            name=f"restart_loop_{service_id}",
+            description=f"{display_name} ({service_unit}) failed to start > {failure_threshold} times in a row",
+            severity=AlarmSeverity.CRITICAL,
+            debounce_sec=debounce_sec,
+            cooldown_sec=cooldown_sec,
+        )
+        self.service_id = service_id
+        self.service_unit = service_unit
+        self.display_name = display_name
+        self.failure_threshold = failure_threshold
+        self.recovery_uptime_sec = recovery_uptime_sec
+
+        self.consecutive_failures: int = 0
+        self.last_seen_exit_timestamp: str | None = None
+        self.stable_run_start_time: float | None = None
+
+    def evaluate_condition(self, snapshot: dict[str, Any]) -> tuple[bool, AlarmSeverity, str, dict[str, Any]]:
+        services = snapshot.get("services", {})
+        svc_info = services.get(self.service_unit, {})
+
+        if not svc_info:
+            return False, AlarmSeverity.CRITICAL, "", {"consecutive_failures": self.consecutive_failures}
+
+        exit_ts = svc_info.get("exec_main_exit_timestamp")
+        exit_status = svc_info.get("exec_main_status", 0)
+        active_state = svc_info.get("active_state", "unknown")
+        sub_state = svc_info.get("sub_state", "unknown")
+
+        # Track exit events
+        if exit_ts and exit_ts != "n/a" and exit_ts != self.last_seen_exit_timestamp:
+            self.last_seen_exit_timestamp = exit_ts
+            if exit_status != 0 or sub_state in ("auto-restart", "failed") or active_state == "failed":
+                self.consecutive_failures += 1
+                self.stable_run_start_time = None
+                logger.warning(
+                    "Service exit detected for %s (exit code %s, state %s/%s). Consecutive failures: %d/%d",
+                    self.service_unit,
+                    exit_status,
+                    active_state,
+                    sub_state,
+                    self.consecutive_failures,
+                    self.failure_threshold,
+                )
+
+        # Allow direct injection of consecutive_failures for testing/mocking
+        if "consecutive_failures" in svc_info:
+            self.consecutive_failures = int(svc_info["consecutive_failures"])
+
+        is_active = self.consecutive_failures >= self.failure_threshold
+        msg = ""
+        if is_active:
+            msg = (
+                f"{self.display_name} ({self.service_unit}) failed to start {self.consecutive_failures} times in a row "
+                f"(exit code {exit_status}). look is continuing automatic restart attempts."
+            )
+
+        metrics = {
+            "service_unit": self.service_unit,
+            "consecutive_failures": self.consecutive_failures,
+            "failure_threshold": self.failure_threshold,
+            "active_state": active_state,
+            "sub_state": sub_state,
+            "exit_status": exit_status,
+            "n_restarts": svc_info.get("n_restarts", 0),
+        }
+        return is_active, AlarmSeverity.CRITICAL, msg, metrics
+
+    def evaluate_recovery(self, snapshot: dict[str, Any]) -> tuple[bool, str]:
+        services = snapshot.get("services", {})
+        svc_info = services.get(self.service_unit, {})
+
+        telemetry_recent = False
+        subsys_telemetry = snapshot.get(self.service_id, {})
+        if subsys_telemetry and isinstance(subsys_telemetry, dict) and len(subsys_telemetry) > 0:
+            telemetry_recent = True
+
+        active_state = svc_info.get("active_state", "unknown")
+        sub_state = svc_info.get("sub_state", "unknown")
+
+        now = getattr(self, "_current_eval_time", None)
+        if now is None:
+            now = datetime.now(timezone.utc).timestamp()
+
+        # If running and active
+        if active_state == "active" and sub_state == "running":
+            if self.stable_run_start_time is None:
+                self.stable_run_start_time = now
+            if (now - self.stable_run_start_time) >= self.recovery_uptime_sec or telemetry_recent:
+                self.consecutive_failures = 0
+                return True, f"{self.display_name} ({self.service_unit}) has recovered and is running stably."
+        else:
+            self.stable_run_start_time = None
+
+        if telemetry_recent:
+            self.consecutive_failures = 0
+            return True, f"{self.display_name} ({self.service_unit}) has recovered and is transmitting live telemetry."
+
+        if svc_info.get("consecutive_failures") == 0 and (active_state == "active" or telemetry_recent):
+            self.consecutive_failures = 0
+            return True, f"{self.display_name} ({self.service_unit}) recovered."
+
+        return False, ""
+
+
 class AlarmEngine:
     """Orchestrates all alarm rules and tracks vessel-wide alert status."""
 
@@ -425,12 +550,17 @@ class AlarmEngine:
             Low12VCapacityRule(),
             Low72VBatteryRule(),
             BatteryOverheatRule(),
+            ServiceRestartLoopRule("12v", "watch_12v.service", "12V Solar Monitor"),
+            ServiceRestartLoopRule("72v", "watch_72v.service", "72V BMS Monitor"),
+            ServiceRestartLoopRule("gps", "watch_gps.service", "GPS Navigation Monitor"),
+            ServiceRestartLoopRule("seatalkng", "paeraki_seatalkng.service", "SeaTalkNG Bus Monitor"),
         ]
         self.snapshot: dict[str, Any] = {
             "72v": {},
             "12v": {},
             "gps": {},
             "charger": {},
+            "services": {},
         }
 
     def update_telemetry(self, subsystem: str, data: dict[str, Any]):
@@ -439,6 +569,12 @@ class AlarmEngine:
             self.snapshot[subsystem].update(data)
         else:
             self.snapshot[subsystem] = data
+
+    def update_systemd(self, services_data: dict[str, Any]):
+        """Updates internal snapshot with systemd service states."""
+        if "services" not in self.snapshot:
+            self.snapshot["services"] = {}
+        self.snapshot["services"].update(services_data)
 
     def evaluate(self, now_epoch: float | None = None) -> list[AlarmEvent]:
         """Evaluates all rules against current snapshot and returns new events."""

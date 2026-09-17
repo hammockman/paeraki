@@ -256,12 +256,14 @@ class GpsWatcher:
             except Exception as e:
                 logger.warning("Could not bind TCP port %s:%d: %s", self.listen_host, self.listen_port, e)
 
+        consecutive_mqtt_errors = 0
         while not shutdown_event.is_set():
             try:
                 logger.info("Connecting to MQTT broker at %s:%d...", self.broker_host, self.broker_port)
                 async with aiomqtt.Client(self.broker_host, port=self.broker_port) as client:
                     self.mqtt_client = client
                     self.mqtt_connected.set()
+                    consecutive_mqtt_errors = 0
                     logger.info("Connected to MQTT broker successfully.")
 
                     # If dry-run simulation mode is active
@@ -293,7 +295,11 @@ class GpsWatcher:
             except Exception as e:
                 self.mqtt_client = None
                 if not shutdown_event.is_set():
-                    logger.warning("MQTT connection error: %s. Retrying in 5 seconds...", e)
+                    consecutive_mqtt_errors += 1
+                    logger.warning("MQTT connection error (%d/10): %s. Retrying in 5 seconds...", consecutive_mqtt_errors, e)
+                    if consecutive_mqtt_errors >= 10:
+                        logger.critical("MQTT broker connection failed 10 consecutive times. Exiting to trigger systemd restart.")
+                        sys.exit(1)
                     try:
                         await asyncio.wait_for(shutdown_event.wait(), timeout=5.0)
                     except asyncio.TimeoutError:

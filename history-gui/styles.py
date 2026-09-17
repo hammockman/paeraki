@@ -285,4 +285,28 @@ QStatusBar {
     font-size: 11px;
     font-family: 'JetBrains Mono', monospace;
 }
+
+/* ================= 3-Panel Telemetry Explorer ================= */
+#metricTreePanel {
+    background-color: #0a1022;
+    border-right: 1px solid #1e293b;
+}
+
+#detailPanel {
+    background-color: #090e1c;
+    border-left: 1px solid #1e293b;
+}
+
+QSplitter::handle {
+    background-color: #141f36;
+}
+
+QSplitter::handle:hover {
+    background-color: #0284c7;
+}
+
+QTreeWidget::item:selected {
+    background-color: #1e3a5f;
+    color: #ffffff;
+}
 """
