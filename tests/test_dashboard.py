@@ -204,3 +204,35 @@ def test_dashboard_snapshot_structure():
     assert "environment" in st
     assert "ais_status" in st
     assert "ais_targets" in st
+    assert "fridge" in sub
+
+
+def test_dashboard_state_fridge():
+    state = DashboardState()
+    payload = {
+        "timestamp": "2026-09-18T09:00:00Z",
+        "powered_on": True,
+        "controls_locked": False,
+        "run_mode": "Eco",
+        "battery_saver": "Mid",
+        "battery_voltage": 13.2,
+        "battery_percent": 100,
+        "temperature_unit": "Celsius",
+        "compressor_running": False,
+        "running_status_code": 0,
+        "left_zone": {
+            "current_temperature": 3,
+            "target_temperature": 5,
+        },
+        "right_zone": {
+            "current_temperature": 4,
+            "target_temperature": 4,
+        },
+    }
+    state.record_packet("paeraki/fridge/state", json.dumps(payload))
+    assert state.fridge["battery_voltage"] == 13.2
+    assert state.fridge["left_zone"]["current_temperature"] == 3
+    assert state.fridge["right_zone"]["current_temperature"] == 4
+    assert state.fridge["compressor_running"] is False
+    assert state.fridge["run_mode"] == "Eco"
+

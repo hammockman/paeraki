@@ -42,6 +42,7 @@ MONITORED_SERVICES = [
     ("72v", "watch_72v.service", "72V BMS Monitor"),
     ("gps", "watch_gps.service", "GPS Navigation Monitor"),
     ("seatalkng", "paeraki_seatalkng.service", "SeaTalkNG Bus Monitor"),
+    ("fridge", "watch_fridge.service", "Fridge Monitor"),
 ]
 
 
@@ -153,6 +154,7 @@ async def run_alarm_monitor(
         ServiceRestartLoopRule("72v", "watch_72v.service", "72V BMS Monitor", failure_threshold=5),
         ServiceRestartLoopRule("gps", "watch_gps.service", "GPS Navigation Monitor", failure_threshold=5),
         ServiceRestartLoopRule("seatalkng", "paeraki_seatalkng.service", "SeaTalkNG Bus Monitor", failure_threshold=5),
+        ServiceRestartLoopRule("fridge", "watch_fridge.service", "Fridge Monitor", failure_threshold=5),
     ])
 
     console_disp = ConsoleDispatcher()

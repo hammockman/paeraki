@@ -1,0 +1,15 @@
+[Unit]
+Description=Paeraki Brass Monkey Dual-Zone Fridge Telemetry Collector
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/fridge/watch.py --broker 192.168.1.1 --address FF:FF:11:73:D1:71 --interval 300.0
+Restart=always
+RestartSec=15s
+User=jh
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

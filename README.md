@@ -7,6 +7,7 @@ graph TD
     subgraph Paeraki Yacht [Onboard Yacht Paeraki]
         SRNE[12V Solar Controller] -->|BLE Modbus| Look[look 192.168.1.100 / .101]
         JBDBMS[72V JBD BMS] -->|BLE GATT| Look
+        Fridge[Brass Monkey 35L Fridge] -->|BLE GATT 5-min Poll| LookFridge[watch_fridge.service on look]
         RUTGPS[Teltonika RUT955 GPS] -->|NMEA TCP :8500| LookGPS[watch_gps.service on look]
 
         subgraph SeaTalkNG [SeaTalkNG / NMEA 2000 Backbone]
@@ -19,6 +20,7 @@ graph TD
 
         LookGPS -->|Publish paeraki/gps/state, gps/*| RUTBroker[Teltonika RUT955 Broker 192.168.1.1:1883]
         Look -->|Publish 12v/*, 72v/*| RUTBroker
+        LookFridge -->|Publish paeraki/fridge/state| RUTBroker
         LookSTNG -->|Publish paeraki/seatalkng/*| RUTBroker
         RUTBroker -->|Subscribe #| LookDashboard[Onboard Dashboard :8080]
     end
@@ -71,6 +73,7 @@ A real-time web dashboard running on **`look`** (`192.168.1.100:8080` / `192.168
   - Solar PV generation power (W), PV voltage, and current.
   - Charge controller state (`MPPT Bulk Charging`, `Float`) and daily yield (kWh).
   - Live Modbus register explorer displaying all incoming 12V keys.
+  - **Brass Monkey 35L Dual-Zone Fridge**: Dual-compartment temperatures (current vs target setpoint), compressor status (`Idle`/`Running`), input supply voltage, run mode (`Eco`/`Max`), and battery cutout protection level.
 - **Live MQTT Stream Inspector**:
   - Auto-scrolling filterable log table displaying incoming vessel packets across topic `#`.
   - Quick filters for **All**, **72V**, **12V**, **GPS**, **SeaTalkNG**, and **Other**.
@@ -113,7 +116,8 @@ A lightweight, non-blocking telemetry logger that captures every MQTT packet com
   3. **`telemetry_ais` table**: Real-time directory of all AIS vessels in VHF range (`mmsi`, `vessel_name`, `call_sign`, `ship_type`, `ais_class`, `latitude`, `longitude`, `sog_knots`, `cog_true`, `true_heading`, `nav_status`, `range_nm`, `bearing_deg`).
   4. **`telemetry_72v` table**: Structured propulsion data (`total_voltage`, `current`, `power`, `rsoc`, `cell_min_v`, `cell_max_v`, `cell_delta_mv`, `cell_voltages_json`, etc.).
   5. **`telemetry_12v` table**: Structured house & solar data (`battery_voltage`, `battery_soc`, `solar_power`, `solar_voltage`, `solar_current`, `daily_yield_kwh`, `charging_status`).
-  6. **Views**: `v_recent_seatalkng`, `v_recent_ais`, `v_recent_72v`, `v_recent_12v`, `v_recent_packets`.
+  6. **`telemetry_fridge` table**: Structured dual-zone refrigeration telemetry (`left_temp`, `left_target`, `right_temp`, `right_target`, `voltage`, `compressor_running`, `run_mode`, `battery_saver`, `powered_on`).
+  7. **Views**: `v_recent_seatalkng`, `v_recent_ais`, `v_recent_72v`, `v_recent_12v`, `v_recent_fridge`, `v_recent_packets`.
 
 ### Managing the Logger Service on `hammer`
 The logger runs as a systemd user service under your account:
@@ -667,7 +671,58 @@ ssh look "sudo systemctl restart paeraki_seatalkng.service"
 
 ---
 
-## 6. Development & Deployment Workflow
+## 6. Brass Monkey Dual-Zone Fridge Monitoring (`watch_fridge.service`)
+
+The onboard 35-liter Brass Monkey dual-zone fridge/freezer is monitored over Bluetooth Low Energy (BLE) by `watch_fridge.service` running on `look`.
+
+### Hardware & Protocol
+- **Device**: Brass Monkey 35L Dual-Zone Refrigerator / Freezer (OEM Alpicool controller).
+- **BLE Identifier**: MAC `FF:FF:11:73:D1:71` (`A1-FFFF1173D171`).
+- **GATT Interface**:
+  - Service: `00001234-0000-1000-8000-00805f9b34fb`
+  - Command (Write): `00001235-0000-1000-8000-00805f9b34fb`
+  - Notification (Read): `00001236-0000-1000-8000-00805f9b34fb`
+- **Framing**: Binary packets framed with `0xFE 0xFE`, length byte, command byte, payload, and a 16-bit big-endian checksum of all preceding bytes.
+
+### Operating Strategy: Periodic Connect-Poll-Disconnect
+Because the Alpicool controller allows only one active BLE client at a time and ceases advertising while connected, `watch_fridge.service` operates in **periodic connect-poll-disconnect mode** by default:
+1. Every **5 minutes** (`--interval 300.0`), the daemon establishes a BLE connection to the fridge (~1.9 s).
+2. It sends a query packet (`0xFE 0xFE 0x03 0x01 0x02 0x00`), awaits the notification frame, and decodes telemetry.
+3. It publishes the readings to the Paeraki MQTT broker.
+4. It immediately disconnects, freeing the Bluetooth link so mobile apps (Brass Monkey / Alpicool) can connect without service interference.
+
+### Published MQTT Topics
+| Topic | Payload | Description |
+|---|---|---|
+| `paeraki/fridge/state` | JSON | Complete telemetry snapshot (temperatures, setpoints, voltage, modes) |
+| `paeraki/fridge/left/temperature` | Float/Int | Left zone current temperature (°C) |
+| `paeraki/fridge/left/target` | Float/Int | Left zone target setpoint (°C) |
+| `paeraki/fridge/right/temperature` | Float/Int | Right zone current temperature (°C) |
+| `paeraki/fridge/right/target` | Float/Int | Right zone target setpoint (°C) |
+| `paeraki/fridge/voltage` | Float | Terminal input voltage (V) |
+| `paeraki/fridge/compressor` | `0` or `1` | Compressor operating status (`0`=Idle, `1`=Running) |
+| `paeraki/fridge/mode` | `Eco` or `Max` | Energy mode |
+
+### Managing `watch_fridge.service` on `look`
+The daemon runs as a continuous systemd service on `look`:
+
+```bash
+# Check service status
+ssh look "systemctl status watch_fridge.service"
+
+# Follow live service logs
+ssh look "journalctl -u watch_fridge.service -f"
+
+# Restart service after code updates
+ssh look "sudo systemctl restart watch_fridge.service"
+
+# Manual one-shot test
+ssh look "uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/fridge/watch.py --broker 192.168.1.1 --once"
+```
+
+---
+
+## 7. Development & Deployment Workflow
 
 Development takes place locally on `hammer` and changes are synced directly to `look`:
 
@@ -676,7 +731,7 @@ Development takes place locally on `hammer` and changes are synced directly to `
 REMOTE_HOST=jh@192.168.1.100 ./sync.sh
 
 # Sync and restart services on look:
-REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng paeraki_dashboard"
+REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng watch_fridge paeraki_dashboard"
 ```
 
 ---
@@ -692,6 +747,7 @@ REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng
 1. ~~Capture SeaTalkNG / NMEA2000 data~~
    - ~~compass, attitude, accelerometer, etc.~~
    - ~~GPS & AIS from Cortex~~
+1. ~~Log Brass Monkey Dual-Zone Fridge via BLE (`watch_fridge.service`)~~
 1. Alarms
    - SMS, email
    - low battery (12v, 72v)

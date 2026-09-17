@@ -554,12 +554,14 @@ class AlarmEngine:
             ServiceRestartLoopRule("72v", "watch_72v.service", "72V BMS Monitor"),
             ServiceRestartLoopRule("gps", "watch_gps.service", "GPS Navigation Monitor"),
             ServiceRestartLoopRule("seatalkng", "paeraki_seatalkng.service", "SeaTalkNG Bus Monitor"),
+            ServiceRestartLoopRule("fridge", "watch_fridge.service", "Fridge Monitor"),
         ]
         self.snapshot: dict[str, Any] = {
             "72v": {},
             "12v": {},
             "gps": {},
             "charger": {},
+            "fridge": {},
             "services": {},
         }
 

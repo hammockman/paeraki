@@ -216,6 +216,28 @@ CREATE VIEW IF NOT EXISTS v_recent_seatalkng AS
 
 CREATE VIEW IF NOT EXISTS v_recent_ais AS
     SELECT * FROM telemetry_ais ORDER BY epoch_ms DESC LIMIT 500;
+
+-- 9. Structured Brass Monkey Dual-Zone Fridge Telemetry
+CREATE TABLE IF NOT EXISTS telemetry_fridge (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    epoch_ms INTEGER NOT NULL,
+    left_temp REAL,
+    left_target REAL,
+    right_temp REAL,
+    right_target REAL,
+    voltage REAL,
+    compressor_running BOOLEAN,
+    run_mode TEXT,
+    battery_saver TEXT,
+    powered_on BOOLEAN,
+    raw_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_fridge_epoch ON telemetry_fridge(epoch_ms);
+
+CREATE VIEW IF NOT EXISTS v_recent_fridge AS
+    SELECT * FROM telemetry_fridge ORDER BY epoch_ms DESC LIMIT 500;
 """
 
 
@@ -235,6 +257,7 @@ class TelemetryDatabase:
         self._capacity_batch: list[tuple] = []
         self._seatalkng_batch: list[tuple] = []
         self._ais_batch: list[tuple] = []
+        self._fridge_batch: list[tuple] = []
 
         self._conn: sqlite3.Connection | None = None
         self._init_db()
@@ -331,6 +354,10 @@ class TelemetryDatabase:
             for t in parsed_json:
                 if isinstance(t, dict):
                     self._record_ais(t, timestamp_iso, epoch_ms)
+
+        # Check for Fridge structured payload
+        if topic == "paeraki/fridge/state" and isinstance(parsed_json, dict):
+            self._record_fridge(parsed_json, timestamp_iso, epoch_ms)
 
         # Check batch threshold
         if len(self._raw_batch) >= self.batch_size:
@@ -563,6 +590,25 @@ class TelemetryDatabase:
         )
         self._ais_batch.append(row)
 
+    def _record_fridge(self, data: dict, timestamp_iso: str, epoch_ms: int):
+        left = data.get("left_zone") or {}
+        right = data.get("right_zone") or {}
+        row = (
+            timestamp_iso,
+            epoch_ms,
+            left.get("current_temperature"),
+            left.get("target_temperature"),
+            right.get("current_temperature") if right else None,
+            right.get("target_temperature") if right else None,
+            data.get("battery_voltage"),
+            1 if data.get("compressor_running") else 0,
+            str(data.get("run_mode", "")),
+            str(data.get("battery_saver", "")),
+            1 if data.get("powered_on", True) else 0,
+            json.dumps(data)
+        )
+        self._fridge_batch.append(row)
+
     def flush(self) -> int:
         """Flushes all pending buffered records to SQLite in a single transaction."""
         if (
@@ -574,6 +620,7 @@ class TelemetryDatabase:
             and not self._capacity_batch
             and not self._seatalkng_batch
             and not self._ais_batch
+            and not self._fridge_batch
         ):
             return 0
 
@@ -671,6 +718,16 @@ class TelemetryDatabase:
                     )
                     self._ais_batch.clear()
 
+                if self._fridge_batch:
+                    conn.executemany(
+                        """INSERT INTO telemetry_fridge (
+                            timestamp, epoch_ms, left_temp, left_target, right_temp, right_target,
+                            voltage, compressor_running, run_mode, battery_saver, powered_on, raw_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        self._fridge_batch
+                    )
+                    self._fridge_batch.clear()
+
             logger.debug("Flushed %d packets to SQLite", total_flushed)
             return total_flushed
         except Exception as e:
@@ -690,6 +747,14 @@ class TelemetryDatabase:
         conn = self._get_connection()
         cursor = conn.execute(
             "SELECT * FROM telemetry_ais ORDER BY epoch_ms DESC LIMIT ?", (limit,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def query_recent_fridge(self, limit: int = 100) -> list[dict]:
+        """Returns recent Brass Monkey fridge telemetry records."""
+        conn = self._get_connection()
+        cursor = conn.execute(
+            "SELECT * FROM telemetry_fridge ORDER BY epoch_ms DESC LIMIT ?", (limit,)
         )
         return [dict(row) for row in cursor.fetchall()]
 

@@ -281,12 +281,45 @@ METRIC_CATALOG: dict[str, MetricDef] = {
         unit="°C", category_id="chg", category_name="🔌 72V BF Tech Charger",
         color="#f97316", description="Charger internal heat sink temperature"
     ),
+
+    # ❄ Brass Monkey Dual-Zone Fridge
+    "fridge_left_t": MetricDef(
+        id="fridge_left_t", name="Fridge Left Temp", table="telemetry_fridge", column="left_temp",
+        unit="°C", category_id="fridge", category_name="❄ Brass Monkey Fridge",
+        color="#38bdf8", description="Left zone current compartment temperature"
+    ),
+    "fridge_left_target": MetricDef(
+        id="fridge_left_target", name="Fridge Left Target", table="telemetry_fridge", column="left_target",
+        unit="°C", category_id="fridge", category_name="❄ Brass Monkey Fridge",
+        color="#0284c7", description="Left zone target setpoint temperature"
+    ),
+    "fridge_right_t": MetricDef(
+        id="fridge_right_t", name="Fridge Right Temp", table="telemetry_fridge", column="right_temp",
+        unit="°C", category_id="fridge", category_name="❄ Brass Monkey Fridge",
+        color="#818cf8", description="Right zone current compartment temperature"
+    ),
+    "fridge_right_target": MetricDef(
+        id="fridge_right_target", name="Fridge Right Target", table="telemetry_fridge", column="right_target",
+        unit="°C", category_id="fridge", category_name="❄ Brass Monkey Fridge",
+        color="#4f46e5", description="Right zone target setpoint temperature"
+    ),
+    "fridge_v": MetricDef(
+        id="fridge_v", name="Fridge Voltage", table="telemetry_fridge", column="voltage",
+        unit="V", category_id="fridge", category_name="❄ Brass Monkey Fridge",
+        color="#fbbf24", description="Terminal supply voltage measured at fridge"
+    ),
+    "fridge_comp": MetricDef(
+        id="fridge_comp", name="Compressor State", table="telemetry_fridge", column="compressor_running",
+        unit="", category_id="fridge", category_name="❄ Brass Monkey Fridge",
+        color="#10b981", description="Compressor running status (1=Running, 0=Idle)"
+    ),
 }
 
 # Categorized groups in display order
 CATEGORIES = [
     ("72v", "⚡ 72V High-Voltage Battery"),
     ("12v", "☀ 12V House & Solar MPPT"),
+    ("fridge", "❄ Brass Monkey Fridge"),
     ("stng", "🧭 SeaTalkNG / NMEA2000"),
     ("gps", "📡 Router GPS (RUT955)"),
     ("chg", "🔌 72V BF Tech Charger"),
@@ -296,11 +329,12 @@ CATEGORIES = [
 PRESETS: dict[str, list[str]] = {
     "72V": ["72v_v", "72v_i", "72v_p", "72v_delta"],
     "12V": ["12v_v", "12v_net_i", "12v_pv_i", "12v_pv_p"],
+    "Fridge": ["fridge_left_t", "fridge_left_target", "fridge_right_t", "fridge_right_target", "fridge_v", "fridge_comp"],
     "Nav": ["stng_sog", "stng_hdg", "stng_pitch", "stng_roll", "stng_press"],
-    "All V": ["72v_v", "72v_cell_min", "72v_cell_max", "12v_v", "12v_pv_v", "12v_load_v", "chg_v"],
+    "All V": ["72v_v", "72v_cell_min", "72v_cell_max", "12v_v", "12v_pv_v", "12v_load_v", "chg_v", "fridge_v"],
     "All A": ["72v_i", "12v_net_i", "12v_pv_i", "12v_load_i", "chg_i"],
     "All W": ["72v_p", "12v_pv_p", "12v_load_p", "chg_p"],
-    "Temps": ["72v_t1", "72v_t2", "12v_ctrl_t", "12v_batt_t", "chg_temp"],
+    "Temps": ["72v_t1", "72v_t2", "12v_ctrl_t", "12v_batt_t", "chg_temp", "fridge_left_t", "fridge_right_t"],
     "Clear": [],
 }
 

@@ -24,7 +24,7 @@
     - interior lights
     - nav lights
     - anchor light
-    - fridge
+    - fridge (partially [DONE] BLE telemetry monitoring operational via watch_fridge.service)
     - 12v inverter (~60A!!!)
     - vhf(s), ais
     - router
@@ -40,3 +40,4 @@
 - control auto pilot from android app
 - reduce the load on "look"
   - move the dashboard server to "sing"
+- local logging on paeraki for when VPN link down

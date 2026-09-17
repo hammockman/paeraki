@@ -279,6 +279,29 @@ class DashboardState:
             "last_updated": None,
         }
 
+        self.fridge: dict[str, Any] = {
+            "powered_on": True,
+            "controls_locked": False,
+            "run_mode": "Eco",
+            "battery_saver": "Mid",
+            "battery_voltage": 0.0,
+            "battery_percent": 100,
+            "temperature_unit": "Celsius",
+            "compressor_running": False,
+            "running_status_code": 0,
+            "left_zone": {
+                "current_temperature": None,
+                "target_temperature": None,
+                "hysteresis": 2,
+            },
+            "right_zone": {
+                "current_temperature": None,
+                "target_temperature": None,
+                "hysteresis": 2,
+            },
+            "last_updated": None,
+        }
+
         self.raw_topics: dict[str, Any] = {}
         self.recent_packets = deque(maxlen=150)
         self.ws_clients: set[WebSocket] = set()
@@ -623,6 +646,10 @@ class DashboardState:
             self.charger[field] = val
             self.charger["last_updated"] = iso_now
 
+        elif topic == "paeraki/fridge/state" and isinstance(parsed_json, dict):
+            self.fridge.update(parsed_json)
+            self.fridge["last_updated"] = iso_now
+
         else:
             self.raw_topics[topic] = {
                 "value": parsed_json if parsed_json is not None else payload_str,
@@ -733,6 +760,7 @@ class DashboardState:
                     "ais_targets": self.get_sorted_ais_targets(),
                 },
                 "charger": self.charger,
+                "fridge": self.fridge,
                 "raw_topics": self.raw_topics,
             },
             "alarms": self.alarms,
@@ -958,6 +986,10 @@ async def mock_worker(interval: float = 2.0):
             p4 = state.record_packet("paeraki/gps/state", json.dumps(router_gps_data), source="mock")
             p5 = state.record_packet("paeraki/seatalkng/ais/targets", json.dumps(mock_ais_targets), source="mock")
 
+            from fridge.watch import get_mock_telemetry
+            fridge_data = get_mock_telemetry()
+            p6 = state.record_packet("paeraki/fridge/state", json.dumps(fridge_data), source="mock")
+
             await state.broadcast({
                 "type": "packet",
                 "packet": p1,
@@ -1046,6 +1078,10 @@ def create_app(broker: str, port: int, enable_mock: bool = False) -> FastAPI:
     @app.get("/api/state")
     async def get_state():
         return JSONResponse(state.get_snapshot())
+
+    @app.get("/api/fridge")
+    async def get_fridge():
+        return JSONResponse(state.fridge)
 
     @app.get("/api/health")
     async def health():

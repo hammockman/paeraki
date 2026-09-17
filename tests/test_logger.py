@@ -125,3 +125,59 @@ def test_seatalkng_and_ais_logging(temp_db):
     v_ais = conn.execute("SELECT * FROM v_recent_ais LIMIT 1").fetchone()
     assert v_ais["mmsi"] == 512008001
     conn.close()
+
+
+def test_fridge_logging(temp_db):
+    fridge_state = {
+        "timestamp": "2026-09-18T09:00:00Z",
+        "powered_on": True,
+        "controls_locked": False,
+        "run_mode": "Eco",
+        "battery_saver": "Mid",
+        "battery_voltage": 13.2,
+        "battery_percent": 100,
+        "temperature_unit": "Celsius",
+        "compressor_running": False,
+        "running_status_code": 0,
+        "left_zone": {
+            "current_temperature": 3,
+            "target_temperature": 5,
+            "hysteresis": 2,
+            "temp_correction_hot": -3,
+            "temp_correction_mid": -3,
+            "temp_correction_cold": -3,
+            "temp_correction_halt": 0,
+        },
+        "right_zone": {
+            "current_temperature": 4,
+            "target_temperature": 4,
+            "hysteresis": 2,
+            "temp_correction_hot": -3,
+            "temp_correction_mid": -3,
+            "temp_correction_cold": -3,
+            "temp_correction_halt": 0,
+        },
+    }
+
+    temp_db.record("paeraki/fridge/state", json.dumps(fridge_state))
+    temp_db.flush()
+
+    recent = temp_db.query_recent_fridge()
+    assert len(recent) == 1
+    row = recent[0]
+    assert row["left_temp"] == 3
+    assert row["left_target"] == 5
+    assert row["right_temp"] == 4
+    assert row["right_target"] == 4
+    assert row["voltage"] == 13.2
+    assert row["compressor_running"] == 0
+    assert row["run_mode"] == "Eco"
+    assert row["battery_saver"] == "Mid"
+    assert row["powered_on"] == 1
+
+    # Verify view v_recent_fridge
+    conn = temp_db._get_connection()
+    view_rows = conn.execute("SELECT * FROM v_recent_fridge").fetchall()
+    assert len(view_rows) == 1
+    assert view_rows[0]["left_temp"] == 3
+

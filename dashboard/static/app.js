@@ -106,6 +106,19 @@
   const val12vCtrlTemp = document.getElementById('val-12v-ctrl-temp');
   const val12vLoad = document.getElementById('val-12v-load');
 
+  // Fridge DOM Elements
+  const valFridgeLeftTemp = document.getElementById('val-fridge-left-temp');
+  const valFridgeLeftTarget = document.getElementById('val-fridge-left-target');
+  const valFridgeRightTemp = document.getElementById('val-fridge-right-temp');
+  const valFridgeRightTarget = document.getElementById('val-fridge-right-target');
+  const valFridgeCompressor = document.getElementById('val-fridge-compressor');
+  const valFridgeVoltage = document.getElementById('val-fridge-voltage');
+  const valFridgeMode = document.getElementById('val-fridge-mode');
+  const valFridgeSaver = document.getElementById('val-fridge-saver');
+  const valFridgePower = document.getElementById('val-fridge-power');
+  const valFridgeUpdated = document.getElementById('val-fridge-updated');
+  const fridgeStatusBadge = document.getElementById('fridge-status-badge');
+
   // GPS DOM Elements
   const valGpsFixBadge = document.getElementById('val-gps-fix-badge');
   const valGpsSogKnots = document.getElementById('val-gps-sog-knots');
@@ -604,6 +617,75 @@
 
     // Refresh Home Tab Instrument
     updateHomeTab();
+  }
+
+  // ---------------- Brass Monkey Fridge Subsystem ----------------
+  function updateFridgeSubsystem(data) {
+    if (!data) return;
+    const left = data.left_zone || {};
+    const right = data.right_zone || {};
+
+    if (valFridgeLeftTemp) {
+      valFridgeLeftTemp.textContent = (left.current_temperature !== undefined && left.current_temperature !== null)
+        ? left.current_temperature
+        : '--';
+    }
+    if (valFridgeLeftTarget) {
+      valFridgeLeftTarget.textContent = (left.target_temperature !== undefined && left.target_temperature !== null)
+        ? `${left.target_temperature} °C`
+        : '-- °C';
+    }
+
+    if (valFridgeRightTemp) {
+      valFridgeRightTemp.textContent = (right.current_temperature !== undefined && right.current_temperature !== null)
+        ? right.current_temperature
+        : '--';
+    }
+    if (valFridgeRightTarget) {
+      valFridgeRightTarget.textContent = (right.target_temperature !== undefined && right.target_temperature !== null)
+        ? `${right.target_temperature} °C`
+        : '-- °C';
+    }
+
+    if (valFridgeCompressor) {
+      const running = Boolean(data.compressor_running);
+      valFridgeCompressor.textContent = running ? 'Running' : 'Idle';
+      valFridgeCompressor.style.color = running ? 'var(--color-teal)' : 'var(--text-dim)';
+    }
+
+    if (valFridgeVoltage) {
+      const v = parseFloat(data.battery_voltage) || 0;
+      valFridgeVoltage.textContent = v > 0 ? `${v.toFixed(1)} V` : '--.- V';
+    }
+
+    if (valFridgeMode) {
+      valFridgeMode.textContent = data.run_mode || 'Eco';
+    }
+
+    if (valFridgeSaver) {
+      valFridgeSaver.textContent = data.battery_saver || 'Mid';
+    }
+
+    if (valFridgePower) {
+      valFridgePower.textContent = data.powered_on ? 'ON' : 'OFF';
+      valFridgePower.style.color = data.powered_on ? 'var(--color-green)' : 'var(--color-red)';
+    }
+
+    if (valFridgeUpdated) {
+      if (data.last_updated) {
+        const d = new Date(data.last_updated);
+        valFridgeUpdated.textContent = isNaN(d.getTime())
+          ? data.last_updated
+          : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } else {
+        valFridgeUpdated.textContent = '--';
+      }
+    }
+
+    if (fridgeStatusBadge) {
+      fridgeStatusBadge.textContent = data.powered_on ? 'ONLINE' : 'OFFLINE';
+      fridgeStatusBadge.className = data.powered_on ? 'card-badge teal-badge' : 'card-badge red-badge';
+    }
   }
 
   // ---------------- Geodetic & Navigation Helpers ----------------
@@ -1291,6 +1373,7 @@
     if (snap.subsystems) {
       if (snap.subsystems['72v']) update72vSubsystem(snap.subsystems['72v']);
       if (snap.subsystems['12v']) update12vSubsystem(snap.subsystems['12v']);
+      if (snap.subsystems.fridge) updateFridgeSubsystem(snap.subsystems.fridge);
 
       if (snap.subsystems.gps_seatalkng) cachedGpsSeatalkng = snap.subsystems.gps_seatalkng;
       if (snap.subsystems.gps_router) cachedGpsRouter = snap.subsystems.gps_router;

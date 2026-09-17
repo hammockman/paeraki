@@ -375,6 +375,72 @@
             </div>
           </div>
         </div>
+
+        <!-- Brass Monkey Dual-Zone Fridge Card -->
+        <div class="card panel-card" style="margin-top: 14px;">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge cyan-badge">REFRIGERATION</span>
+              <h2 title="Brass Monkey 35L Dual-Zone Portable Fridge">Brass Monkey 35L Fridge</h2>
+            </div>
+            <div class="card-badge teal-badge" id="fridge-status-badge">ONLINE</div>
+          </div>
+
+          <!-- Hero Metrics: Dual-Zone Temperatures -->
+          <div class="hero-metric-row">
+            <!-- Left Zone Block -->
+            <div class="solar-hero-block" style="flex: 1;">
+              <span class="stat-label">LEFT ZONE</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono glow-teal" id="val-fridge-left-temp">--</span>
+                <span class="stat-unit-label">°C</span>
+              </div>
+              <div class="solar-sub-stats">
+                <span>Target: <strong class="mono" id="val-fridge-left-target">-- °C</strong></span>
+              </div>
+            </div>
+
+            <!-- Right Zone Block -->
+            <div class="solar-hero-block" style="flex: 1;">
+              <span class="stat-label">RIGHT ZONE</span>
+              <div class="stat-value-group">
+                <span class="stat-hero mono glow-teal" id="val-fridge-right-temp">--</span>
+                <span class="stat-unit-label">°C</span>
+              </div>
+              <div class="solar-sub-stats">
+                <span>Target: <strong class="mono" id="val-fridge-right-target">-- °C</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fridge System Metrics Subgrid -->
+          <div class="metrics-subgrid">
+            <div class="submetric">
+              <span class="submetric-label">Compressor</span>
+              <span class="submetric-val" id="val-fridge-compressor">Idle</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Input Voltage</span>
+              <span class="submetric-val mono" id="val-fridge-voltage">--.- V</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Run Mode</span>
+              <span class="submetric-val mono" id="val-fridge-mode">Eco</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Cutout Protection</span>
+              <span class="submetric-val mono" id="val-fridge-saver">Mid</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Power State</span>
+              <span class="submetric-val mono" id="val-fridge-power">ON</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Last Polled</span>
+              <span class="submetric-val mono" id="val-fridge-updated">--</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ================= TAB 3: GPS NAVIGATION & DYNAMICS ================= -->
