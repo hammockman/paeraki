@@ -181,6 +181,8 @@ class DashboardState:
             "sog_ms": 0.0,
             "cog_true": None,
             "altitude_m": None,
+            "altitude_wgs84_m": None,
+            "geoidal_sep_m": None,
             "satellites": 0,
             "hdop": None,
             "last_sentence": None,
@@ -199,6 +201,8 @@ class DashboardState:
             "sog_knots": 0.0,
             "cog_true": None,
             "altitude_m": None,
+            "altitude_wgs84_m": None,
+            "geoidal_sep_m": None,
             "satellites": 0,
             "hdop": None,
             "last_updated": None,
@@ -216,6 +220,8 @@ class DashboardState:
             "sog_knots": 0.0,
             "cog_true": None,
             "altitude_m": None,
+            "altitude_wgs84_m": None,
+            "geoidal_sep_m": 0.0,
             "satellites": 0,
             "hdop": None,
             "last_updated": None,
@@ -405,6 +411,8 @@ class DashboardState:
                 "satellites": sats if sats is not None else self.system_gps_seatalkng.get("satellites", 0),
                 "hdop": hdop,
                 "altitude_m": alt,
+                "altitude_wgs84_m": alt,
+                "geoidal_sep_m": 0.0,
                 "last_updated": iso_now,
                 "source": "seatalkng",
             })
@@ -466,6 +474,8 @@ class DashboardState:
                 "satellites": parsed_json.get("satellites", self.system_gps_seatalkng.get("satellites")),
                 "hdop": parsed_json.get("hdop", self.system_gps_seatalkng.get("hdop")),
                 "altitude_m": parsed_json.get("altitude_m", self.system_gps_seatalkng.get("altitude_m")),
+                "altitude_wgs84_m": parsed_json.get("altitude_m", self.system_gps_seatalkng.get("altitude_m")),
+                "geoidal_sep_m": 0.0,
                 "last_updated": iso_now,
                 "source": "seatalkng",
             })
@@ -520,6 +530,12 @@ class DashboardState:
             lat = parsed_json.get("latitude")
             lon = parsed_json.get("longitude")
             self.system_gps_router.update(parsed_json)
+            # Reconcile WGS-84 altitude: alt + geoidal separation
+            alt_m = self.system_gps_router.get("altitude_m")
+            sep_m = self.system_gps_router.get("geoidal_sep_m")
+            if self.system_gps_router.get("altitude_wgs84_m") is None and alt_m is not None and sep_m is not None:
+                self.system_gps_router["altitude_wgs84_m"] = round(alt_m + sep_m, 1)
+
             self.system_gps_router["latitude_nautical"] = format_lat_nautical(lat)
             self.system_gps_router["longitude_nautical"] = format_lon_nautical(lon)
             self.system_gps_router["last_updated"] = iso_now
@@ -543,6 +559,15 @@ class DashboardState:
             self.system_gps_router[field] = val
             self.system_gps_router["last_updated"] = iso_now
             self.system_gps_router["source"] = "router"
+            if field in ("altitude_m", "geoidal_sep_m") and self.system_gps_router.get("altitude_wgs84_m") is None:
+                a = self.system_gps_router.get("altitude_m")
+                g = self.system_gps_router.get("geoidal_sep_m")
+                if a is not None and g is not None:
+                    try:
+                        self.system_gps_router["altitude_wgs84_m"] = round(float(a) + float(g), 1)
+                    except (ValueError, TypeError):
+                        pass
+
             if field in ("latitude", "longitude"):
                 self.system_gps_router["latitude_nautical"] = format_lat_nautical(self.system_gps_router.get("latitude"))
                 self.system_gps_router["longitude_nautical"] = format_lon_nautical(self.system_gps_router.get("longitude"))
@@ -550,6 +575,8 @@ class DashboardState:
             if self.system_gps.get("source") == "router":
                 self.system_gps[field] = val
                 self.system_gps["last_updated"] = iso_now
+                if self.system_gps_router.get("altitude_wgs84_m") is not None:
+                    self.system_gps["altitude_wgs84_m"] = self.system_gps_router["altitude_wgs84_m"]
                 if field in ("latitude", "longitude"):
                     self.system_gps["latitude_nautical"] = self.system_gps_router["latitude_nautical"]
                     self.system_gps["longitude_nautical"] = self.system_gps_router["longitude_nautical"]

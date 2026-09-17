@@ -101,6 +101,13 @@ def test_dashboard_state_seatalkng_and_router_gps():
     assert state.system_gps_router["latitude"] == -36.84855
     assert state.system_gps_seatalkng["latitude"] == -43.60478
 
+    # Test WGS-84 altitude calculation from router altitude_m and geoidal_sep_m
+    state.record_packet("rut955/gps/altitude_m", "2.1")
+    state.record_packet("rut955/gps/geoidal_sep_m", "11.0")
+    assert state.system_gps_router["altitude_m"] == 2.1
+    assert state.system_gps_router["geoidal_sep_m"] == 11.0
+    assert state.system_gps_router["altitude_wgs84_m"] == 13.1
+
 
 def test_dashboard_state_ais_sorting_and_unknown_identification():
     state = DashboardState()

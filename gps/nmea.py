@@ -95,6 +95,8 @@ class NmeaState:
         self.sog_ms: float = 0.0
         self.cog_true: float | None = None
         self.altitude_m: float | None = None
+        self.geoidal_sep_m: float | None = None
+        self.altitude_wgs84_m: float | None = None
         self.satellites: int = 0
         self.hdop: float | None = None
         self.last_sentence_type: str | None = None
@@ -243,6 +245,20 @@ class NmeaState:
         except (ValueError, IndexError):
             pass
 
+        try:
+            if len(parts) > 11 and parts[11]:
+                self.geoidal_sep_m = round(float(parts[11]), 1)
+        except (ValueError, IndexError):
+            pass
+
+        if self.altitude_m is not None:
+            if self.geoidal_sep_m is not None:
+                self.altitude_wgs84_m = round(self.altitude_m + self.geoidal_sep_m, 1)
+            else:
+                self.altitude_wgs84_m = self.altitude_m
+        else:
+            self.altitude_wgs84_m = None
+
         if not self.timestamp:
             self.timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -312,6 +328,8 @@ class NmeaState:
             "sog_ms": self.sog_ms,
             "cog_true": self.cog_true,
             "altitude_m": self.altitude_m,
+            "geoidal_sep_m": self.geoidal_sep_m,
+            "altitude_wgs84_m": self.altitude_wgs84_m,
             "satellites": self.satellites,
             "hdop": self.hdop,
             "last_sentence": self.last_sentence_type,

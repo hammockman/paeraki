@@ -137,6 +137,10 @@ class GpsWatcher:
                 await self.mqtt_client.publish("rut955/gps/cog_true", str(state["cog_true"]))
             if state["altitude_m"] is not None:
                 await self.mqtt_client.publish("rut955/gps/altitude_m", str(state["altitude_m"]))
+            if state.get("altitude_wgs84_m") is not None:
+                await self.mqtt_client.publish("rut955/gps/altitude_wgs84_m", str(state["altitude_wgs84_m"]))
+            if state.get("geoidal_sep_m") is not None:
+                await self.mqtt_client.publish("rut955/gps/geoidal_sep_m", str(state["geoidal_sep_m"]))
             await self.mqtt_client.publish("rut955/gps/satellites", str(state["satellites"]))
             if state["hdop"] is not None:
                 await self.mqtt_client.publish("rut955/gps/hdop", str(state["hdop"]))
@@ -191,7 +195,7 @@ class GpsWatcher:
         # 1. $GPRMC
         rmc_body = f"GPRMC,{utc_time},A,{lat_nmea},{lat_hemi},{lon_nmea},{lon_hemi},{self.sim_sog:.2f},{self.sim_cog:.1f},{utc_date},,,A"
         # 2. $GPGGA
-        gga_body = f"GPGGA,{utc_time},{lat_nmea},{lat_hemi},{lon_nmea},{lon_hemi},1,09,1.1,2.4,M,0.0,M,,"
+        gga_body = f"GPGGA,{utc_time},{lat_nmea},{lat_hemi},{lon_nmea},{lon_hemi},1,09,1.1,2.4,M,11.0,M,,"
         # 3. $GPVTG
         vtg_body = f"GPVTG,{self.sim_cog:.1f},T,,M,{self.sim_sog:.2f},N,{self.sim_sog * 1.852:.2f},K,A"
         # 4. $GPGSA
@@ -225,13 +229,19 @@ class GpsWatcher:
             except Exception as e:
                 logger.error("Failed to bind UDP port %s:%d: %s", self.listen_host, self.listen_port, e)
 
+            active_tcp_writers: set[asyncio.StreamWriter] = set()
+
             # Start TCP listener so standard BusyBox nc (TCP-only) works seamlessly
             async def handle_tcp_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
                 client_addr = writer.get_extra_info("peername")
                 logger.info("TCP NMEA client connected from %s", client_addr)
+                active_tcp_writers.add(writer)
                 try:
                     while not shutdown_event.is_set():
-                        line = await reader.readline()
+                        try:
+                            line = await asyncio.wait_for(reader.readline(), timeout=1.0)
+                        except asyncio.TimeoutError:
+                            continue
                         if not line:
                             break
                         text = line.decode("ascii", errors="replace").strip()
@@ -240,6 +250,7 @@ class GpsWatcher:
                 except Exception as err:
                     logger.debug("TCP client %s error/disconnect: %s", client_addr, err)
                 finally:
+                    active_tcp_writers.discard(writer)
                     try:
                         writer.close()
                         await writer.wait_closed()

@@ -635,7 +635,14 @@
     const lonDec = data.longitude !== null && data.longitude !== undefined ? parseFloat(data.longitude) : null;
     const sats = parseInt(data.satellites, 10) || 0;
     const hdop = parseFloat(data.hdop);
-    const alt = parseFloat(data.altitude_m);
+    let altWgs84 = null;
+    if (data.altitude_wgs84_m !== undefined && data.altitude_wgs84_m !== null) {
+      altWgs84 = parseFloat(data.altitude_wgs84_m);
+    } else if (data.source === 'router' && data.altitude_m !== null && data.geoidal_sep_m !== null && data.geoidal_sep_m !== undefined) {
+      altWgs84 = parseFloat(data.altitude_m) + parseFloat(data.geoidal_sep_m);
+    } else if (data.altitude_m !== null && data.altitude_m !== undefined) {
+      altWgs84 = parseFloat(data.altitude_m);
+    }
 
     if (valGpsFixBadge) {
       valGpsFixBadge.textContent = hasFix ? '3D FIX' : 'NO FIX';
@@ -663,7 +670,7 @@
     if (valGpsQuality) valGpsQuality.textContent = hasFix ? 'GPS Fix (SPS)' : 'Searching';
     if (valGpsSats) valGpsSats.textContent = `${sats} sats`;
     if (valGpsHdop) valGpsHdop.textContent = !isNaN(hdop) && hdop > 0 ? hdop.toFixed(1) : '--.-';
-    if (valGpsAltitude) valGpsAltitude.textContent = !isNaN(alt) ? `${alt.toFixed(1)} m` : '--.- m';
+    if (valGpsAltitude) valGpsAltitude.textContent = altWgs84 !== null && !isNaN(altWgs84) ? `${altWgs84.toFixed(1)} m` : '--.- m';
 
     if (linkGpsMap) {
       if (latDec !== null && lonDec !== null && !isNaN(latDec) && !isNaN(lonDec)) {
@@ -758,8 +765,18 @@
     if (cmpStHdop) cmpStHdop.textContent = st.hdop ? Number(st.hdop).toFixed(2) : '--.-';
     if (cmpRtHdop) cmpRtHdop.textContent = rt.hdop ? Number(rt.hdop).toFixed(2) : '--.-';
 
-    if (cmpStAlt) cmpStAlt.textContent = st.altitude_m !== null && st.altitude_m !== undefined ? `${Number(st.altitude_m).toFixed(1)} m` : '--.- m';
-    if (cmpRtAlt) cmpRtAlt.textContent = rt.altitude_m !== null && rt.altitude_m !== undefined ? `${Number(rt.altitude_m).toFixed(1)} m` : '--.- m';
+    const stAlt = st.altitude_wgs84_m !== undefined && st.altitude_wgs84_m !== null
+      ? parseFloat(st.altitude_wgs84_m)
+      : (st.altitude_m !== null && st.altitude_m !== undefined ? parseFloat(st.altitude_m) : null);
+
+    const rtAlt = rt.altitude_wgs84_m !== undefined && rt.altitude_wgs84_m !== null
+      ? parseFloat(rt.altitude_wgs84_m)
+      : (rt.altitude_m !== null && rt.geoidal_sep_m !== null && rt.geoidal_sep_m !== undefined
+        ? parseFloat(rt.altitude_m) + parseFloat(rt.geoidal_sep_m)
+        : (rt.altitude_m !== null && rt.altitude_m !== undefined ? parseFloat(rt.altitude_m) : null));
+
+    if (cmpStAlt) cmpStAlt.textContent = stAlt !== null && !isNaN(stAlt) ? `${stAlt.toFixed(1)} m` : '--.- m';
+    if (cmpRtAlt) cmpRtAlt.textContent = rtAlt !== null && !isNaN(rtAlt) ? `${rtAlt.toFixed(1)} m` : '--.- m';
 
     const dM = haversineMeters(st.latitude, st.longitude, rt.latitude, rt.longitude);
     if (gpsCompareDeltaBadge) {
