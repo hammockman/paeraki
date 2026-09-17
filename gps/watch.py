@@ -121,25 +121,26 @@ class GpsWatcher:
             # 1. Consolidated state JSON
             payload = json.dumps(state)
             await self.mqtt_client.publish("paeraki/gps/state", payload)
+            await self.mqtt_client.publish("paeraki/rut955/gps/state", payload)
 
-            # 2. Discrete metrics under gps/*
-            await self.mqtt_client.publish("gps/fix", str(state["fix"]).lower())
-            await self.mqtt_client.publish("gps/fix_status", str(state["fix_status"]))
+            # 2. Discrete metrics under rut955/gps/*
+            await self.mqtt_client.publish("rut955/gps/fix", str(state["fix"]).lower())
+            await self.mqtt_client.publish("rut955/gps/fix_status", str(state["fix_status"]))
             if state["latitude"] is not None:
-                await self.mqtt_client.publish("gps/latitude", str(state["latitude"]))
-                await self.mqtt_client.publish("gps/longitude", str(state["longitude"]))
-                await self.mqtt_client.publish("gps/latitude_nautical", state["latitude_nautical"])
-                await self.mqtt_client.publish("gps/longitude_nautical", state["longitude_nautical"])
-            await self.mqtt_client.publish("gps/sog_knots", str(state["sog_knots"]))
-            await self.mqtt_client.publish("gps/sog_kmh", str(state["sog_kmh"]))
+                await self.mqtt_client.publish("rut955/gps/latitude", str(state["latitude"]))
+                await self.mqtt_client.publish("rut955/gps/longitude", str(state["longitude"]))
+                await self.mqtt_client.publish("rut955/gps/latitude_nautical", state["latitude_nautical"])
+                await self.mqtt_client.publish("rut955/gps/longitude_nautical", state["longitude_nautical"])
+            await self.mqtt_client.publish("rut955/gps/sog_knots", str(state["sog_knots"]))
+            await self.mqtt_client.publish("rut955/gps/sog_kmh", str(state["sog_kmh"]))
             if state["cog_true"] is not None:
-                await self.mqtt_client.publish("gps/cog_true", str(state["cog_true"]))
+                await self.mqtt_client.publish("rut955/gps/cog_true", str(state["cog_true"]))
             if state["altitude_m"] is not None:
-                await self.mqtt_client.publish("gps/altitude_m", str(state["altitude_m"]))
-            await self.mqtt_client.publish("gps/satellites", str(state["satellites"]))
+                await self.mqtt_client.publish("rut955/gps/altitude_m", str(state["altitude_m"]))
+            await self.mqtt_client.publish("rut955/gps/satellites", str(state["satellites"]))
             if state["hdop"] is not None:
-                await self.mqtt_client.publish("gps/hdop", str(state["hdop"]))
-            await self.mqtt_client.publish("gps/timestamp", state["timestamp"])
+                await self.mqtt_client.publish("rut955/gps/hdop", str(state["hdop"]))
+            await self.mqtt_client.publish("rut955/gps/timestamp", state["timestamp"])
 
             fix_label = "FIX 3D" if state["fix"] else "NO FIX"
             logger.info(

@@ -345,12 +345,14 @@ class DetailPanel(QWidget):
             self._render_cell_bars(row_72)
 
         # Contextual GPS Fix
-        row_gps = nearest_rows.get("telemetry_seatalkng") or nearest_rows.get("telemetry_gps")
+        row_stng = nearest_rows.get("telemetry_seatalkng")
+        row_gps = row_stng or nearest_rows.get("telemetry_gps")
         if row_gps is not None:
             lat = row_gps.get("latitude")
             lon = row_gps.get("longitude")
             sats = row_gps.get("satellites") or "--"
             hdop = row_gps.get("hdop") or "--"
+            source_lbl = "Cortex GNSS" if row_stng is not None and row_stng.get("latitude") is not None else "RUT955 GPS"
             if lat is not None and lon is not None:
                 lat_card = "S" if lat < 0 else "N"
                 lon_card = "E" if lon >= 0 else "W"
@@ -359,7 +361,7 @@ class DetailPanel(QWidget):
                 lon_deg = int(abs(lon))
                 lon_min = (abs(lon) - lon_deg) * 60.0
                 self.lbl_gps_pos.setText(f"{lat_deg:02d}°{lat_min:06.3f}' {lat_card}  •  {lon_deg:03d}°{lon_min:06.3f}' {lon_card}")
-                self.lbl_gps_meta.setText(f"Satellites: {sats} | HDOP: {hdop} | Cortex GNSS")
+                self.lbl_gps_meta.setText(f"Satellites: {sats} | HDOP: {hdop} | {source_lbl}")
 
     def _render_cell_bars(self, row: dict[str, Any]):
         """Render 20S cell balance bar heights at the current instant."""

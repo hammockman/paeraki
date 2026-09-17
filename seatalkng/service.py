@@ -507,21 +507,21 @@ class SeaTalkNgService:
                         "altitude_m": state["altitude_m"],
                     }),
                 )
-                # Bridge to primary vessel GPS topics
-                await self._publish("gps/latitude", str(state["latitude"]))
-                await self._publish("gps/longitude", str(state["longitude"]))
+                # Discrete SeaTalkNG GNSS topics
+                await self._publish("seatalkng/gps/latitude", str(state["latitude"]))
+                await self._publish("seatalkng/gps/longitude", str(state["longitude"]))
                 if state["sog_knots"] is not None:
-                    await self._publish("gps/sog_knots", str(state["sog_knots"]))
-                    await self._publish("gps/sog_kmh", str(round(state["sog_knots"] * 1.852, 2)))
+                    await self._publish("seatalkng/gps/sog_knots", str(state["sog_knots"]))
+                    await self._publish("seatalkng/gps/sog_kmh", str(round(state["sog_knots"] * 1.852, 2)))
                 if state["cog_true"] is not None:
-                    await self._publish("gps/cog_true", str(state["cog_true"]))
+                    await self._publish("seatalkng/gps/cog_true", str(state["cog_true"]))
                 if state["satellites"] is not None:
-                    await self._publish("gps/satellites", str(state["satellites"]))
+                    await self._publish("seatalkng/gps/satellites", str(state["satellites"]))
                 if state["hdop"] is not None:
-                    await self._publish("gps/hdop", str(state["hdop"]))
-                await self._publish("gps/fix", "true")
-                await self._publish("gps/fix_status", "GNSS 3D")
-                await self._publish("gps/timestamp", state["timestamp"])
+                    await self._publish("seatalkng/gps/hdop", str(state["hdop"]))
+                await self._publish("seatalkng/gps/fix", "true")
+                await self._publish("seatalkng/gps/fix_status", "GNSS 3D")
+                await self._publish("seatalkng/gps/timestamp", state["timestamp"])
 
     async def _periodic_ais_publisher(self):
         """Publishes the full array of nearby AIS targets every 2 seconds."""

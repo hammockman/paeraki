@@ -82,16 +82,41 @@ def test_seatalkng_and_ais_logging(temp_db):
     assert ais["range_nm"] == 0.32
     assert ais["bearing_deg"] == 99.3
 
-    # Check that telemetry_gps was also updated
+    # Verify SeaTalkNG does not pollute telemetry_gps
     conn = sqlite3.connect(temp_db.db_path)
     conn.row_factory = sqlite3.Row
+    gps_count = conn.execute("SELECT count(*) as cnt FROM telemetry_gps").fetchone()["cnt"]
+    assert gps_count == 0
+
+    # Record router GPS telemetry
+    router_state = {
+        "fix": True,
+        "fix_status": "A",
+        "fix_quality": 1,
+        "latitude": -36.8485,
+        "longitude": 174.7633,
+        "latitude_nautical": "36° 50.910' S",
+        "longitude_nautical": "174° 45.798' E",
+        "sog_knots": 5.2,
+        "sog_kmh": 9.6,
+        "sog_ms": 2.7,
+        "cog_true": 54.0,
+        "altitude_m": 3.2,
+        "satellites": 9,
+        "hdop": 1.1,
+        "last_sentence": "$GPRMC",
+    }
+    temp_db.record("paeraki/rut955/gps/state", json.dumps(router_state))
+    temp_db.flush()
+
+    # Verify telemetry_gps is populated with source='rut955'
     gps_row = conn.execute("SELECT * FROM telemetry_gps ORDER BY epoch_ms DESC LIMIT 1").fetchone()
     assert gps_row is not None
-    assert gps_row["latitude"] == pytest.approx(-43.604784)
-    assert gps_row["longitude"] == pytest.approx(172.7149718)
-    assert "S" in gps_row["latitude_nautical"]
-    assert "E" in gps_row["longitude_nautical"]
+    assert gps_row["latitude"] == pytest.approx(-36.8485)
+    assert gps_row["longitude"] == pytest.approx(174.7633)
+    assert gps_row["source"] == "rut955"
     assert gps_row["fix"] == 1
+    assert gps_row["satellites"] == 9
 
     # Check views
     v_stng = conn.execute("SELECT * FROM v_recent_seatalkng LIMIT 1").fetchone()

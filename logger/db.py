@@ -96,7 +96,8 @@ CREATE TABLE IF NOT EXISTS telemetry_gps (
     altitude_m REAL,
     satellites INTEGER,
     hdop REAL,
-    last_sentence TEXT
+    last_sentence TEXT,
+    source TEXT DEFAULT 'rut955'
 );
 
 CREATE INDEX IF NOT EXISTS idx_gps_epoch ON telemetry_gps(epoch_ms);
@@ -252,6 +253,12 @@ class TelemetryDatabase:
         conn = self._get_connection()
         with conn:
             conn.executescript(SCHEMA_SQL)
+            # Schema migration: ensure 'source' column exists in telemetry_gps
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(telemetry_gps)")
+            cols = [row[1] for row in cur.fetchall()]
+            if "source" not in cols:
+                conn.execute("ALTER TABLE telemetry_gps ADD COLUMN source TEXT DEFAULT 'rut955'")
         logger.info("Initialized telemetry database at %s (WAL mode enabled)", self.db_path)
 
     def record(self, topic: str, payload_str: str, timestamp_iso: str | None = None) -> None:
@@ -302,8 +309,8 @@ class TelemetryDatabase:
             self._record_12v(parsed_json, timestamp_iso, epoch_ms)
 
         # Check for GPS structured payload
-        if topic == "paeraki/gps/state" and isinstance(parsed_json, dict):
-            self._record_gps(parsed_json, timestamp_iso, epoch_ms)
+        if (topic in ("paeraki/gps/state", "paeraki/rut955/gps/state")) and isinstance(parsed_json, dict):
+            self._record_gps(parsed_json, timestamp_iso, epoch_ms, source="rut955")
 
         # Check for Charger structured payload
         if (topic in ("paeraki/charger/state", "charger/telemetry")) and isinstance(parsed_json, dict):
@@ -387,7 +394,7 @@ class TelemetryDatabase:
         )
         self._12v_batch.append(row)
 
-    def _record_gps(self, data: dict, timestamp_iso: str, epoch_ms: int):
+    def _record_gps(self, data: dict, timestamp_iso: str, epoch_ms: int, source: str = "rut955"):
         row = (
             timestamp_iso,
             epoch_ms,
@@ -405,7 +412,8 @@ class TelemetryDatabase:
             data.get("altitude_m"),
             data.get("satellites"),
             data.get("hdop"),
-            str(data.get("last_sentence", ""))
+            str(data.get("last_sentence", "")),
+            source
         )
         self._gps_batch.append(row)
 
@@ -531,40 +539,6 @@ class TelemetryDatabase:
         )
         self._seatalkng_batch.append(row)
 
-        # Also keep telemetry_gps table updated with high-precision SeaTalkNG coordinates
-        if lat is not None and lon is not None:
-            lat_hemi = "S" if lat < 0 else "N"
-            lat_deg = int(abs(lat))
-            lat_min = (abs(lat) - lat_deg) * 60.0
-            lat_naut = f"{lat_deg}°{lat_min:06.3f}' {lat_hemi}"
-
-            lon_hemi = "W" if lon < 0 else "E"
-            lon_deg = int(abs(lon))
-            lon_min = (abs(lon) - lon_deg) * 60.0
-            lon_naut = f"{lon_deg}°{lon_min:06.3f}' {lon_hemi}"
-
-            sog_k = sog or 0.0
-            gps_row = (
-                timestamp_iso,
-                epoch_ms,
-                1,
-                "GNSS 3D (SeaTalkNG)",
-                1,
-                lat,
-                lon,
-                lat_naut,
-                lon_naut,
-                sog_k,
-                round(sog_k * 1.852, 2),
-                round(sog_k * 0.514444, 2),
-                cog,
-                alt,
-                sats,
-                hdop,
-                "SeaTalkNG PGN 129029"
-            )
-            self._gps_batch.append(gps_row)
-
     def _record_ais(self, data: dict, timestamp_iso: str, epoch_ms: int):
         mmsi = data.get("mmsi")
         if not mmsi:
@@ -646,8 +620,8 @@ class TelemetryDatabase:
                             timestamp, epoch_ms, fix, fix_status, fix_quality,
                             latitude, longitude, latitude_nautical, longitude_nautical,
                             sog_knots, sog_kmh, sog_ms, cog_true, altitude_m,
-                            satellites, hdop, last_sentence
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            satellites, hdop, last_sentence, source
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         self._gps_batch
                     )
                     self._gps_batch.clear()

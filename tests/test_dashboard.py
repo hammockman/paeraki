@@ -84,11 +84,22 @@ def test_dashboard_state_seatalkng_and_router_gps():
         "fix": True,
         "fix_status": "3D FIX",
     }
-    state.record_packet("paeraki/gps/state", json.dumps(router_payload))
+    state.record_packet("paeraki/rut955/gps/state", json.dumps(router_payload))
 
     assert state.system_gps_router["fix"] is True
     assert state.system_gps_router["latitude"] == -36.84852
     assert state.system_gps_router["source"] == "router"
+
+    # Test discrete packet routing without crosstalk
+    state.record_packet("rut955/gps/satellites", "8")
+    state.record_packet("seatalkng/gps/satellites", "17")
+    assert state.system_gps_router["satellites"] == 8
+    assert state.system_gps_seatalkng["satellites"] == 17
+
+    state.record_packet("rut955/gps/latitude", "-36.84855")
+    state.record_packet("seatalkng/gps/latitude", "-43.60478")
+    assert state.system_gps_router["latitude"] == -36.84855
+    assert state.system_gps_seatalkng["latitude"] == -43.60478
 
 
 def test_dashboard_state_ais_sorting_and_unknown_identification():

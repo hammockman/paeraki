@@ -516,7 +516,7 @@ class DashboardState:
             self.ais_status["status_label"] = "ONLINE · ACTIVE"
             self.ais_status["last_updated"] = iso_now
 
-        elif topic == "paeraki/gps/state" and isinstance(parsed_json, dict):
+        elif (topic in ("paeraki/gps/state", "paeraki/rut955/gps/state")) and isinstance(parsed_json, dict):
             lat = parsed_json.get("latitude")
             lon = parsed_json.get("longitude")
             self.system_gps_router.update(parsed_json)
@@ -528,8 +528,8 @@ class DashboardState:
             if self.system_gps.get("source") == "router":
                 self.system_gps.update(self.system_gps_router)
 
-        elif topic.startswith("gps/"):
-            field = topic.split("/", 1)[1]
+        elif topic.startswith("rut955/gps/"):
+            field = topic[len("rut955/gps/"):]
             val = parsed_json if parsed_json is not None else payload_str
             try:
                 if isinstance(val, str) and "." in val:
@@ -542,6 +542,7 @@ class DashboardState:
                 pass
             self.system_gps_router[field] = val
             self.system_gps_router["last_updated"] = iso_now
+            self.system_gps_router["source"] = "router"
             if field in ("latitude", "longitude"):
                 self.system_gps_router["latitude_nautical"] = format_lat_nautical(self.system_gps_router.get("latitude"))
                 self.system_gps_router["longitude_nautical"] = format_lon_nautical(self.system_gps_router.get("longitude"))
@@ -552,6 +553,32 @@ class DashboardState:
                 if field in ("latitude", "longitude"):
                     self.system_gps["latitude_nautical"] = self.system_gps_router["latitude_nautical"]
                     self.system_gps["longitude_nautical"] = self.system_gps_router["longitude_nautical"]
+
+        elif topic.startswith("seatalkng/gps/"):
+            field = topic[len("seatalkng/gps/"):]
+            val = parsed_json if parsed_json is not None else payload_str
+            try:
+                if isinstance(val, str) and "." in val:
+                    val = float(val)
+                elif isinstance(val, str) and (val.lstrip("-").isdigit()):
+                    val = int(val)
+                elif isinstance(val, str) and val.lower() in ("true", "false"):
+                    val = val.lower() == "true"
+            except ValueError:
+                pass
+            self.system_gps_seatalkng[field] = val
+            self.system_gps_seatalkng["last_updated"] = iso_now
+            self.system_gps_seatalkng["source"] = "seatalkng"
+            if field in ("latitude", "longitude"):
+                self.system_gps_seatalkng["latitude_nautical"] = format_lat_nautical(self.system_gps_seatalkng.get("latitude"))
+                self.system_gps_seatalkng["longitude_nautical"] = format_lon_nautical(self.system_gps_seatalkng.get("longitude"))
+
+            if self.system_gps.get("source") == "seatalkng":
+                self.system_gps[field] = val
+                self.system_gps["last_updated"] = iso_now
+                if field in ("latitude", "longitude"):
+                    self.system_gps["latitude_nautical"] = self.system_gps_seatalkng["latitude_nautical"]
+                    self.system_gps["longitude_nautical"] = self.system_gps_seatalkng["longitude_nautical"]
 
         elif (topic in ("paeraki/charger/state", "charger/telemetry")) and isinstance(parsed_json, dict):
             self.charger.update(parsed_json)

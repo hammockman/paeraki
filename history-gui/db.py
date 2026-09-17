@@ -217,6 +217,11 @@ METRIC_CATALOG: dict[str, MetricDef] = {
         unit="HDOP", category_id="stng", category_name="🧭 SeaTalkNG / NMEA2000",
         color="#34d399", description="Horizontal dilution of precision"
     ),
+    "stng_alt": MetricDef(
+        id="stng_alt", name="GNSS Altitude", table="telemetry_seatalkng", column="altitude_m",
+        unit="m", category_id="stng", category_name="🧭 SeaTalkNG / NMEA2000",
+        color="#64748b", description="SeaTalkNG GNSS elevation above mean sea level"
+    ),
     "stng_ais": MetricDef(
         id="stng_ais", name="Active AIS Targets", table="telemetry_seatalkng", column="ais_target_count",
         unit="count", category_id="stng", category_name="🧭 SeaTalkNG / NMEA2000",
