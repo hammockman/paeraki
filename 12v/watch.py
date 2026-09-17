@@ -48,7 +48,7 @@ def get_mock_telemetry() -> dict:
 
 
 CHARGING_MODES = {
-    0: "Deactivated",
+    0: "Idle",
     1: "Activated",
     2: "MPPT Charge",
     3: "Equalize",
