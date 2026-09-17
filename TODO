@@ -1,6 +1,16 @@
+Fixes
+=====
+
 - fix poor battery charger performance (BF_TECH, Hexapower, 192.168.4.1) - hunting, not charging at full 20A
   - logging charger state???
-- music player setup (see TODO.music)
+- fix BMS login 
+- reduce the load on "look"
+  - move the dashboard server to "sing"
+
+
+Monitoring
+==========
+
 - [DONE] currently the 72v pack is assummed to have a 200Ah capacity. if we kept track of all charge/discharge increments, we should be able to get a better estimate of the true capacity and monitor it over long run (i.e. capacity decrease over months/years)
   - Implemented in logger/capacity_analyzer.py, battery_capacity_history table in paeraki.db, and dynamic MQTT retained communication
 - [DONE] dashboard
@@ -18,9 +28,8 @@
   - [DONE] what exactly is 12V "Daily Yield"? (Resolved: daily solar energy kWh into 12V battery)
 - [DONE] minor mods to history explorer
   - [DONE] don't allow zoom out beyound data boundaries
-- integration with 12V load distribution/relays/fuses (wifi???)
+- integration with 12V load monitoring (wifi???)
   - measure current draw of individual loads
-  - implement ability to switch loads on/off (via wifi???)
     - interior lights
     - nav lights
     - anchor light
@@ -37,7 +46,36 @@
     - sensors (ray marine compass, wind, depth)
 - [DONE] alarms (via SMS or email)
   - [DONE] 12V 50% capacity (Implemented in modular alarms/watch.py daemon with SMS via Teltonika router)\
-- control auto pilot from android app
-- reduce the load on "look"
-  - move the dashboard server to "sing"
 - local logging on paeraki for when VPN link down
+
+
+Control
+=======
+
+Once the monitoring stuff is all in place it'll be time to start controlling
+things
+
+- [DONE] silence Vortex/Cortex alarms (via cortex/watch.py and dashboard remote API with device authorization)
+- [DONE] MoB trigger (local sirens & GPS waypoint drop via dashboard emergency action bar)
+- fridge on/off (and maybe set other controls)
+- autopilot:
+  - bearing
+  - tacking
+  - screen brightness
+- music player setup (see TODO.music)
+- 12V load switching (and circuit protection)
+  - via wifi device???
+    - interior lights
+    - nav lights
+    - anchor light
+    - fridge (partially [DONE] BLE telemetry monitoring operational via watch_fridge.service)
+    - 12v inverter (~60A!!!)
+    - vhf(s), ais
+    - router
+    - computers (look, sing, ...)
+    - usb outlets
+    - stereo & amp
+    - water pump
+    - bilge pumps + level monitor (permanently on but still measure current)
+    - auto pilot
+    - sensors (ray marine compass, wind, depth)

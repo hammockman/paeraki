@@ -165,3 +165,44 @@ def test_range_bearing_calculation():
     dist, bearing = calculate_range_bearing(-43.60478, 172.71496, -43.59645, 172.71496)
     assert dist == pytest.approx(0.5, abs=0.05)
     assert bearing == pytest.approx(0.0, abs=1.0)
+
+
+def test_alert_pgns_and_mob():
+    from seatalkng.decoder import (
+        decode_pgn_126983,
+        decode_pgn_126984,
+        decode_pgn_126985,
+        decode_pgn_127233,
+        encode_pgn_126984_silence,
+        encode_pgn_127233_mob,
+    )
+
+    # 1. PGN 126983 Alert
+    # alert_id=101, type=1, cat=2, sys=3, sub=4, silenced=True (byte 10 = 1)
+    p_alert = bytes([101, 0, 1, 2, 3, 4, 0, 0, 0, 0, 1, 0])
+    res_alert = decode_pgn_126983(p_alert)
+    assert res_alert["alert_id"] == 101
+    assert res_alert["silenced"] is True
+    assert res_alert["acknowledged"] is False
+
+    # 2. PGN 126984 Alert Response (Silence)
+    enc_silence = encode_pgn_126984_silence(alert_id=101, response_cmd=1)
+    res_resp = decode_pgn_126984(enc_silence)
+    assert res_resp["alert_id"] == 101
+    assert res_resp["response_command"] == 1
+    assert res_resp["response_action"] == "Temporary Silence"
+
+    # 3. PGN 126985 Alert Text
+    p_text = bytes([101, 0, 0]) + b"Anchor Drag Alert"
+    res_text = decode_pgn_126985(p_text)
+    assert res_text["alert_id"] == 101
+    assert res_text["alert_text"] == "Anchor Drag Alert"
+
+    # 4. PGN 127233 MOB
+    enc_mob = encode_pgn_127233_mob(lat=-36.8485, lon=174.7633, mob_id=7, active=True)
+    res_mob = decode_pgn_127233(enc_mob)
+    assert res_mob["mob_id"] == 7
+    assert res_mob["mob_active"] is True
+    assert res_mob["latitude"] == pytest.approx(-36.8485, abs=1e-5)
+    assert res_mob["longitude"] == pytest.approx(174.7633, abs=1e-5)
+

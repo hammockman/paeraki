@@ -2668,7 +2668,11 @@ body.high-contrast .ais-empty-state {
 }
 
 /* ==========================================================================
-   Device Authorization & Control Security
+   Device Authorization & Cortex Controls
+   ========================================================================== */
+
+/* ==========================================================================
+   Device Authorization & Cortex Controls
    ========================================================================== */
 
 .auth-toggle-btn {
@@ -2911,7 +2915,7 @@ body.high-contrast .ais-empty-state {
   background: rgba(6, 182, 212, 0.08);
 }
 
-/* ---------------- Sunlight / Daylight Mode Overrides for Auth ---------------- */
+/* ---------------- Sunlight / Daylight Mode Overrides for Auth & Cortex ---------------- */
 body.high-contrast .auth-toggle-btn {
   background: #f1f5f9 !important;
   border-color: #cbd5e1 !important;
@@ -3045,3 +3049,119 @@ body.high-contrast .pairing-btn:hover {
   border-color: #0284c7 !important;
   color: #0284c7 !important;
 }
+
+body.high-contrast .cortex-actions-bar,
+body.high-contrast .home-mob-bar {
+  border-top-color: #e2e8f0 !important;
+}
+
+body.high-contrast .mob-hint {
+  color: #64748b !important;
+}
+
+body.high-contrast .alarm-silence-btn {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #b91c1c !important;
+}
+
+body.high-contrast .alarm-silence-btn:hover {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+}
+
+
+/* MoB & Cortex Actions */
+.cortex-actions-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #1e293b;
+}
+
+.home-mob-bar {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mob-btn {
+  background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+  color: #fff;
+  border: 2px solid #ef4444;
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+  transition: all 0.2s ease;
+}
+
+.mob-btn:hover {
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.6);
+}
+
+.mob-btn:active {
+  transform: translateY(1px);
+}
+
+.mob-hint {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  text-align: center;
+}
+
+/* Alarm Silence Button */
+.alarm-silence-btn {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.2s;
+}
+
+.alarm-silence-btn:hover {
+  background: #dc2626;
+  color: #fff;
+}
+
+.mob-active-banner {
+  background: #dc2626;
+  color: #fff;
+  padding: 14px 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  animation: pulseMob 1.5s infinite;
+  box-shadow: 0 0 25px rgba(220, 38, 38, 0.8);
+}
+
+@keyframes pulseMob {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+  70% { box-shadow: 0 0 0 15px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+
+
+

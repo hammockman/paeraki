@@ -162,6 +162,14 @@
               </div>
             </div>
 
+            <!-- Emergency Action Bar (Man Overboard) -->
+            <div class="cortex-actions-bar home-mob-bar">
+              <button class="mob-btn" id="btn-mob-trigger" title="Man Overboard Trigger (Safety Protected)">
+                <span class="mob-icon">🛟</span> MAN OVERBOARD
+              </button>
+              <span class="mob-hint mono">Protected Action • Logs Waypoint &amp; Activates Vessel Alert</span>
+            </div>
+
           </div>
         </div>
       </section>
@@ -606,6 +614,36 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Cortex Anchor Watch Card -->
+        <div class="card panel-card" id="cortex-anchor-card" style="margin-top: 14px;">
+          <div class="panel-header">
+            <div class="card-title-group">
+              <span class="sys-badge cyan-badge">VESPER CORTEX M1</span>
+              <h2>Anchor Watch</h2>
+            </div>
+            <span class="card-badge" id="cortex-anchor-status-badge">INACTIVE</span>
+          </div>
+
+          <div class="metrics-subgrid">
+            <div class="submetric">
+              <span class="submetric-label">Anchor Drop Point</span>
+              <span class="submetric-val mono" id="val-anchor-coords">--° --.---' -</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Current Drift Distance</span>
+              <span class="submetric-val mono" id="val-anchor-dist">--.- m</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Safe Swing Radius</span>
+              <span class="submetric-val mono" id="val-anchor-radius">-- m</span>
+            </div>
+            <div class="submetric">
+              <span class="submetric-label">Drag Alarm Status</span>
+              <span class="submetric-val" id="val-anchor-alarm">OK</span>
+            </div>
           </div>
         </div>
 

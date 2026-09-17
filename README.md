@@ -22,6 +22,8 @@ graph TD
         Look -->|Publish 12v/*, 72v/*| RUTBroker
         LookFridge -->|Publish paeraki/fridge/state| RUTBroker
         LookSTNG -->|Publish paeraki/seatalkng/*| RUTBroker
+        CortexHub[Vesper Cortex M1 Hub] -->|TCP / WebSocket :8000| LookCortex[watch_cortex.service on look]
+        LookCortex -->|Publish paeraki/cortex/*| RUTBroker
         RUTBroker -->|Subscribe #| LookDashboard[Onboard Dashboard :8080]
     end
 
@@ -78,6 +80,10 @@ A real-time web dashboard running on **`look`** (`192.168.1.100:8080` / `192.168
   - Auto-scrolling filterable log table displaying incoming vessel packets across topic `#`.
   - Quick filters for **All**, **72V**, **12V**, **GPS**, **SeaTalkNG**, and **Other**.
   - Pause auto-scroll and clear buffer controls.
+- **Vesper Cortex M1 Safety & Emergency Controls**:
+  - **Man Overboard (MoB) Emergency Action**: A prominent, protected MoB button on the primary **Home** tab allows instant emergency triggering. Activating MoB logs the current high-precision GPS fix as an emergency waypoint, sounds vessel sirens, and broadcasts an active alert banner with coordinates across all connected dashboards.
+  - **Anchor Watch Card**: Displays real-time anchor drop coordinates, drift distance from drop point, safe swing radius, and drag alarm status on the GPS/Navigation tab.
+  - **Per-Alarm Silencing**: Any active Cortex hub alert (collision risk, anchor drag, sensor failure) can be acknowledged and silenced directly from the alarm banner by authorized controllers.
 - **Role-Based Device Authorization & Control Security**:
   - **Default Read-Only (`VIEWER`) Access**: Any mobile phone, tablet, or laptop connecting to the boat Wi-Fi can immediately monitor real-time vessel telemetry without requiring credentials.
   - **Control Role Elevation (`CONTROLLER`)**: Control endpoints (such as battery SOC calibration, remote alarm silencing, and vessel emergency controls) require `CONTROLLER` authorization via FastAPI dependency `require_control_auth`.
@@ -729,7 +735,45 @@ ssh look "uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/fridge/watch.p
 
 ---
 
-## 7. Development & Deployment Workflow
+## 7. Vesper Cortex M1 Hub Integration & Safety Controls (`watch_cortex.service`)
+
+The onboard **Vesper Cortex M1 Hub** (VHF/AIS/Anchor Watch/Safety transponder) connects to the vessel network and provides bidirectional telemetry and alarm control via `watch_cortex.service` running on `look`.
+
+### Features
+- **Dynamic Discovery**: Automatically discovers the Cortex hub on the boat LAN via mDNS / UDP broadcast with automatic fallback to static IP (`192.168.1.50`).
+- **Telemetry Streaming**: Subscribes to the Cortex internal WebSocket interface on port `8000`, receiving real-time anchor watch coordinates, drift distance, safe swing radius, active alarms (CPA collision risk, anchor drag), battery voltage, and barometric pressure.
+- **Per-Alarm Silencing**: Authorized controllers can temporarily silence or acknowledge alarms directly from the dashboard via MQTT topic `paeraki/cortex/command`.
+- **Man Overboard (MoB) Protection**: The dashboard emergency action button on the Home tab broadcasts MoB alerts to `paeraki/cortex/mob/alert`, logs emergency GPS fix coordinates, and formats NMEA 2000 / SeaTalkNG alert frames (`PGN 127233` and `PGN 126983`).
+
+### Published MQTT Topics
+| Topic | Payload | Description |
+|---|---|---|
+| `paeraki/cortex/anchor` | JSON | Anchor watch state (`active`, `anchor_lat`, `anchor_lon`, `radius_m`, `distance_m`, `drag_alarm`) |
+| `paeraki/cortex/alarms` | JSON | Active alarms list (`id`, `type`, `severity`, `message`, `silenced`, `silenceable`) |
+| `paeraki/cortex/telemetry` | JSON | Cortex system telemetry (`battery_v`, `pressure_hpa`, `host`, `port`) |
+| `paeraki/cortex/mob/alert` | JSON | Emergency Man Overboard state (`active`, `latitude`, `longitude`, `timestamp`, `source`) |
+| `paeraki/cortex/command` | JSON | Inbound control commands (`silence`, `mob`, `mob_cancel`, `set_anchor_watch`) |
+
+### Managing `watch_cortex.service` on `look`
+The daemon runs as a continuous systemd service on `look`:
+
+```bash
+# Check service status
+ssh look "systemctl status watch_cortex.service"
+
+# Follow live service logs
+ssh look "journalctl -u watch_cortex.service -f"
+
+# Restart service after code updates
+ssh look "sudo systemctl restart watch_cortex.service"
+
+# Manual test with mock data
+uv run python cortex/watch.py --mock --broker 192.168.1.1
+```
+
+---
+
+## 8. Development & Deployment Workflow
 
 Development takes place locally on `hammer` and changes are synced directly to `look`:
 
@@ -738,7 +782,7 @@ Development takes place locally on `hammer` and changes are synced directly to `
 REMOTE_HOST=jh@192.168.1.100 ./sync.sh
 
 # Sync and restart services on look:
-REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng watch_fridge paeraki_dashboard"
+REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng watch_fridge watch_cortex paeraki_dashboard"
 ```
 
 ---
@@ -755,6 +799,10 @@ REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng
    - ~~compass, attitude, accelerometer, etc.~~
    - ~~GPS & AIS from Cortex~~
 1. ~~Log Brass Monkey Dual-Zone Fridge via BLE (`watch_fridge.service`)~~
+1. ~~Vesper Cortex M1 Hub telemetry & safety control (`watch_cortex.service`)~~
+   - ~~Remote alarm silencing & per-alarm acknowledgement~~
+   - ~~Anchor watch monitoring card~~
+   - ~~Emergency Man Overboard (MoB) trigger on Home tab~~
 1. Alarms
    - SMS, email
    - low battery (12v, 72v)
@@ -765,3 +813,4 @@ REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng
 1. Touchscreen display
 1. Ultrasonic depth sensor
 1. Auto-helm
+

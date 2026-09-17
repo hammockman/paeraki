@@ -452,6 +452,12 @@ class SeaTalkNgService:
                 if target:
                     await self._publish(f"paeraki/seatalkng/ais/target/{mmsi}", json.dumps(target))
 
+        elif pgn in (126983, 126984):
+            await self._publish("paeraki/seatalkng/alerts", payload_json)
+
+        elif pgn == 127233:
+            await self._publish("paeraki/seatalkng/mob", payload_json)
+
         elif pgn in (129809, 129810):
             mmsi = record.get("mmsi")
             if mmsi:

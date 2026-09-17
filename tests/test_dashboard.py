@@ -237,6 +237,53 @@ def test_dashboard_state_fridge():
     assert state.fridge["run_mode"] == "Eco"
 
 
+def test_dashboard_state_cortex_and_mob():
+    state = DashboardState()
+
+    # 1. Ingest Cortex Anchor Watch
+    anchor_data = {
+        "active": True,
+        "anchor_lat": -36.8485,
+        "anchor_lon": 174.7633,
+        "radius_m": 35.0,
+        "distance_m": 12.4,
+        "bearing_deg": 120.0,
+        "drag_alarm": False,
+    }
+    state.record_packet("paeraki/cortex/anchor", json.dumps(anchor_data))
+    assert state.cortex_anchor["active"] is True
+    assert state.cortex_anchor["radius_m"] == 35.0
+    assert state.cortex_anchor["distance_m"] == 12.4
+
+    # 2. Ingest Cortex Active Alarms
+    alarms_data = [
+        {"id": "alarm_cpa_1", "type": "CollisionRisk", "message": "CPA risk with Target A", "silenced": False}
+    ]
+    state.record_packet("paeraki/cortex/alarms", json.dumps(alarms_data))
+    assert len(state.cortex_alarms) == 1
+    assert state.cortex_alarms[0]["id"] == "alarm_cpa_1"
+
+    # 3. Ingest MoB Alert
+    mob_data = {
+        "active": True,
+        "timestamp": "2026-09-18T10:00:00Z",
+        "latitude": -36.8485,
+        "longitude": 174.7633,
+        "source": "dashboard",
+    }
+    state.record_packet("paeraki/cortex/mob/alert", json.dumps(mob_data))
+    assert state.mob_alert["active"] is True
+    assert state.mob_alert["latitude"] == -36.8485
+
+    # 4. Verify in Snapshot
+    snap = state.get_snapshot()
+    sub = snap["subsystems"]
+    assert "cortex" in sub
+    assert sub["cortex"]["anchor"]["radius_m"] == 35.0
+    assert len(sub["cortex"]["alarms"]) == 1
+    assert "mob" in sub
+    assert sub["mob"]["active"] is True
+
 
 def test_dashboard_auth_protection():
     import asyncio
@@ -256,3 +303,66 @@ def test_dashboard_auth_protection():
     # Controller context -> allowed
     ctx = asyncio.run(require_control_auth({"role": "CONTROLLER", "name": "Skipper"}))
     assert ctx["name"] == "Skipper"
+
+
+def test_cortex_control_flow():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    import dashboard.server as srv
+
+    # Mock publish on server's state
+    srv.state.publish = AsyncMock()
+
+    # Pre-populate Cortex alarm
+    srv.state.cortex_alarms = [
+        {"id": "alarm_anchor_1", "type": "AnchorDrag", "message": "Dragging anchor", "silenced": False}
+    ]
+    srv.state.system_gps = {"latitude": -36.8485, "longitude": 174.7633}
+
+    app = srv.create_app("", 0)
+
+    # Find cortex_silence, cortex_mob, cortex_mob_cancel route endpoints
+    silence_endpoint = None
+    mob_endpoint = None
+    mob_cancel_endpoint = None
+    for route in app.routes:
+        if getattr(route, "path", None) == "/api/cortex/silence":
+            silence_endpoint = route.endpoint
+        elif getattr(route, "path", None) == "/api/cortex/mob":
+            mob_endpoint = route.endpoint
+        elif getattr(route, "path", None) == "/api/cortex/mob/cancel":
+            mob_cancel_endpoint = route.endpoint
+
+    assert silence_endpoint is not None
+    assert mob_endpoint is not None
+    assert mob_cancel_endpoint is not None
+
+    async def _run_tests():
+        # 1. Test Silence Alarm
+        req = MagicMock()
+        req.json = AsyncMock(return_value={"alarm_id": "alarm_anchor_1"})
+        auth_ctx = {"role": "CONTROLLER", "name": "Skipper"}
+        res = await silence_endpoint(req, auth_ctx=auth_ctx)
+        assert res.status_code == 200
+        assert srv.state.cortex_alarms[0]["silenced"] is True
+        assert srv.state.publish.called
+
+        # 2. Test Trigger MoB
+        req_mob = MagicMock()
+        req_mob.json = AsyncMock(return_value={"confirm": True})
+        res_mob = await mob_endpoint(req_mob, auth_ctx=auth_ctx)
+        assert res_mob.status_code == 200
+        assert srv.state.mob_alert["active"] is True
+        assert srv.state.mob_alert["latitude"] == -36.8485
+
+        # 3. Test Cancel MoB
+        req_cancel = MagicMock()
+        res_cancel = await mob_cancel_endpoint(req_cancel, auth_ctx=auth_ctx)
+        assert res_cancel.status_code == 200
+        assert srv.state.mob_alert["active"] is False
+
+    asyncio.run(_run_tests())
+
+
+
+

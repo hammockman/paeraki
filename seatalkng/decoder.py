@@ -25,9 +25,13 @@ PGN_CATALOG: Dict[int, str] = {
     65384: "Seatalk: Pilot Target / Wind Datum (Proprietary)",
     126208: "NMEA Request / Command / Acknowledge Group Function",
     126720: "Seatalk: Autopilot Control / Command (Proprietary)",
+    126983: "Alert",
+    126984: "Alert Response / Silence",
+    126985: "Alert Text",
     126992: "System Time",
     126996: "Product Information",
     126998: "Configuration Information",
+    127233: "Man Overboard Notification",
     127245: "Rudder",
     127250: "Vessel Heading",
     127251: "Rate of Turn",
@@ -62,7 +66,7 @@ PGN_CATALOG: Dict[int, str] = {
 
 # Multi-frame Fast Packet PGN list
 FAST_PACKET_PGNS = {
-    126996, 126998, 129029, 129038, 129039, 129040, 129041,
+    126983, 126985, 126996, 126998, 127233, 129029, 129038, 129039, 129040, 129041,
     129540, 129794, 129809, 129810, 126720
 }
 
@@ -507,8 +511,93 @@ def decode_raymarine_proprietary(pgn: int, payload: bytes) -> Dict[str, Any]:
     return res
 
 
+def decode_pgn_126983(payload: bytes) -> Dict[str, Any]:
+    """PGN 126983: Alert definition and state."""
+    if len(payload) < 6:
+        raise ValueError("PGN 126983 payload under 6 bytes")
+    alert_id = struct.unpack("<H", payload[0:2])[0]
+    alert_type = payload[2]
+    category = payload[3]
+    system = payload[4]
+    sub_system = payload[5]
+    silenced = bool(payload[10] & 0x01) if len(payload) >= 11 else False
+    acknowledged = bool(payload[11] & 0x01) if len(payload) >= 12 else False
+    return {
+        "alert_id": alert_id,
+        "alert_type": alert_type,
+        "category": category,
+        "system": system,
+        "sub_system": sub_system,
+        "silenced": silenced,
+        "acknowledged": acknowledged,
+    }
+
+
+def decode_pgn_126984(payload: bytes) -> Dict[str, Any]:
+    """PGN 126984: Alert Response / Silence command."""
+    if len(payload) < 8:
+        raise ValueError("PGN 126984 payload under 8 bytes")
+    alert_id = struct.unpack("<H", payload[0:2])[0]
+    resp_cmd = payload[7] if len(payload) >= 8 else 0
+    resp_names = {0: "Acknowledge", 1: "Temporary Silence", 2: "Cancel Silence"}
+    return {
+        "alert_id": alert_id,
+        "response_command": resp_cmd,
+        "response_action": resp_names.get(resp_cmd, f"Command {resp_cmd}"),
+    }
+
+
+def decode_pgn_126985(payload: bytes) -> Dict[str, Any]:
+    """PGN 126985: Alert Text Description."""
+    if len(payload) < 3:
+        raise ValueError("PGN 126985 payload under 3 bytes")
+    alert_id = struct.unpack("<H", payload[0:2])[0]
+    language_id = payload[2]
+    text = payload[3:].decode("latin1", errors="replace").rstrip("\x00\xff") if len(payload) > 3 else ""
+    return {
+        "alert_id": alert_id,
+        "language_id": language_id,
+        "alert_text": text,
+    }
+
+
+def decode_pgn_127233(payload: bytes) -> Dict[str, Any]:
+    """PGN 127233: Man Overboard Notification."""
+    if len(payload) < 21:
+        raise ValueError("PGN 127233 payload under 21 bytes")
+    mob_id = struct.unpack("<I", payload[0:4])[0]
+    mob_status = payload[4]
+    raw_lat = struct.unpack("<i", payload[13:17])[0]
+    raw_lon = struct.unpack("<i", payload[17:21])[0]
+    lat = (raw_lat * 1e-7) if raw_lat != 0x7FFFFFFF else None
+    lon = (raw_lon * 1e-7) if raw_lon != 0x7FFFFFFF else None
+    return {
+        "mob_id": mob_id,
+        "mob_active": (mob_status == 0),
+        "latitude": round(lat, 6) if lat is not None else None,
+        "longitude": round(lon, 6) if lon is not None else None,
+    }
+
+
+def encode_pgn_126984_silence(alert_id: int, response_cmd: int = 1) -> bytes:
+    """Encodes PGN 126984 Alert Response (1 = Temporary Silence, 0 = Acknowledge)."""
+    return struct.pack("<HBBBBBB", alert_id, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, response_cmd)
+
+
+def encode_pgn_127233_mob(lat: float, lon: float, mob_id: int = 1, active: bool = True) -> bytes:
+    """Encodes PGN 127233 Man Overboard Notification."""
+    status = 0 if active else 1
+    raw_lat = int(round(lat * 1e7))
+    raw_lon = int(round(lon * 1e7))
+    return struct.pack("<IBIIii", mob_id, status, 0xFFFFFFFF, 0xFFFFFFFF, raw_lat, raw_lon)
+
+
 # Dispatch table for known PGN decoders
 DECODERS: Dict[int, Callable[[bytes], Dict[str, Any]]] = {
+    126983: decode_pgn_126983,
+    126984: decode_pgn_126984,
+    126985: decode_pgn_126985,
+    127233: decode_pgn_127233,
     129025: decode_pgn_129025,
     129026: decode_pgn_129026,
     129029: decode_pgn_129029,

@@ -25,18 +25,6 @@
   const lastSeenEl = document.getElementById('last-seen');
   const btnContrastToggle = document.getElementById('btn-contrast-toggle');
 
-  // Auth & Security DOM
-  const btnAuthToggle = document.getElementById('btn-auth-toggle');
-  const authLockIcon = document.getElementById('auth-lock-icon');
-  const authLockText = document.getElementById('auth-lock-text');
-  const authModal = document.getElementById('auth-modal');
-  const authModalDesc = document.getElementById('auth-modal-desc');
-  const btnCloseAuthModal = document.getElementById('btn-close-auth-modal');
-  const inputSkipperPin = document.getElementById('input-skipper-pin');
-  const btnSubmitSkipperPin = document.getElementById('btn-submit-skipper-pin');
-  const authPinFeedback = document.getElementById('auth-pin-feedback');
-  const btnRequestPairingAction = document.getElementById('btn-request-pairing-action');
-
   // Home Tab DOM Elements
   const homeCardPower = document.getElementById('home-card-power');
   const homeCardSpeed = document.getElementById('home-card-speed');
@@ -190,6 +178,27 @@
   const btnAisFilterUnknown = document.getElementById('btn-ais-filter-unknown');
   const btnAisFilterNamed = document.getElementById('btn-ais-filter-named');
   const aisTargetsList = document.getElementById('ais-targets-list');
+
+  // Auth & Security DOM
+  const btnAuthToggle = document.getElementById('btn-auth-toggle');
+  const authLockIcon = document.getElementById('auth-lock-icon');
+  const authLockText = document.getElementById('auth-lock-text');
+  const authModal = document.getElementById('auth-modal');
+  const authModalDesc = document.getElementById('auth-modal-desc');
+  const btnCloseAuthModal = document.getElementById('btn-close-auth-modal');
+  const inputSkipperPin = document.getElementById('input-skipper-pin');
+  const btnSubmitSkipperPin = document.getElementById('btn-submit-skipper-pin');
+  const authPinFeedback = document.getElementById('auth-pin-feedback');
+  const btnRequestPairingAction = document.getElementById('btn-request-pairing-action');
+
+  // Cortex Anchor & MoB DOM
+  const cortexAnchorCard = document.getElementById('cortex-anchor-card');
+  const cortexAnchorStatusBadge = document.getElementById('cortex-anchor-status-badge');
+  const valAnchorCoords = document.getElementById('val-anchor-coords');
+  const valAnchorDist = document.getElementById('val-anchor-dist');
+  const valAnchorRadius = document.getElementById('val-anchor-radius');
+  const valAnchorAlarm = document.getElementById('val-anchor-alarm');
+  const btnMobTrigger = document.getElementById('btn-mob-trigger');
 
   // Log Table DOM
   const logRowsContainer = document.getElementById('log-rows-container');
@@ -1295,144 +1304,30 @@
     return `${protocol}//${cleanHost}${cleanPath}`;
   }
 
-  let socket = null;
-  let reconnectDelay = 1000;
-
-  function connectWebSocket() {
-    const wsUrl = getWsUrl('/ws');
-    console.log('[Paeraki Monitor] Connecting to WebSocket:', wsUrl);
-
-    try {
-      socket = new WebSocket(wsUrl);
-    } catch (e) {
-      console.error('[Paeraki Monitor] WebSocket init error:', e);
-      scheduleReconnect();
-      return;
-    }
-
-    socket.onopen = function() {
-      console.log('[Paeraki Monitor] WebSocket Connected');
-      connDot.className = 'pulse-dot connected';
-      connLabel.textContent = 'Live';
-      reconnectDelay = 1000;
-    };
-
-    socket.onmessage = function(event) {
-      try {
-        const msg = JSON.parse(event.data);
-
-        if (msg.type === 'snapshot' && msg.snapshot) {
-          handleSnapshot(msg.snapshot);
-        } else if (msg.type === 'packet' && msg.packet) {
-          if (!isLogPaused) {
-            renderLogRow(msg.packet);
-          }
-          if (msg.snapshot) {
-            handleSnapshot(msg.snapshot);
-          }
-        }
-      } catch (err) {
-        console.error('[Paeraki Monitor] Message parse error:', err);
-      }
-    };
-
-    socket.onclose = function(e) {
-      console.warn('[Paeraki Monitor] WebSocket closed:', e.reason || e.code);
-      connDot.className = 'pulse-dot';
-      connLabel.textContent = 'Reconnecting...';
-      scheduleReconnect();
-    };
-
-    socket.onerror = function(err) {
-      console.error('[Paeraki Monitor] WebSocket error:', err);
-      socket.close();
-    };
+  // ---------------- Helper Utilities ----------------
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
-  function scheduleReconnect() {
-    setTimeout(() => {
-      connectWebSocket();
-      reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
-    }, reconnectDelay);
-  }
+  function formatNautical(lat, lon) {
+    if (lat === null || lat === undefined || lon === null || lon === undefined) return "--° --.---' -";
+    const latH = lat >= 0 ? 'N' : 'S';
+    const aLat = Math.abs(lat);
+    const latD = Math.floor(aLat);
+    const latM = (aLat - latD) * 60;
 
-  function handleSnapshot(snap) {
-    if (!snap) return;
+    const lonH = lon >= 0 ? 'E' : 'W';
+    const aLon = Math.abs(lon);
+    const lonD = Math.floor(aLon);
+    const lonM = (aLon - lonD) * 60;
 
-    if (snap.broker) {
-      if (totalPacketsEl) totalPacketsEl.textContent = snap.broker.total_packets || 0;
-      if (packetRateEl) packetRateEl.textContent = `${snap.broker.msg_rate || 0.0} /s`;
-      if (brokerEndpoint) brokerEndpoint.textContent = `${snap.broker.host}:${snap.broker.port}`;
-
-      const miscPkts = document.getElementById('misc-total-packets');
-      const miscRate = document.getElementById('misc-packet-rate');
-      const miscHost = document.getElementById('broker-host');
-      if (miscPkts) miscPkts.textContent = `${snap.broker.total_packets || 0} pkts`;
-      if (miscRate) miscRate.textContent = `${snap.broker.msg_rate || 0.0} msg/s`;
-      if (miscHost) miscHost.textContent = `${snap.broker.host}:${snap.broker.port}`;
-
-      if (snap.broker.last_packet_time && lastSeenEl) {
-        const d = new Date(snap.broker.last_packet_time);
-        lastSeenEl.textContent = d.toLocaleTimeString('en-US', { hour12: false });
-      }
-    }
-
-    if (snap.server && snap.server.hostname) {
-      const el = document.getElementById('server-host');
-      if (el) el.textContent = snap.server.hostname ? `${snap.server.hostname} (${getServerHost()})` : getServerHost();
-    }
-
-    if (snap.subsystems) {
-      if (snap.subsystems['72v']) update72vSubsystem(snap.subsystems['72v']);
-      if (snap.subsystems['12v']) update12vSubsystem(snap.subsystems['12v']);
-      if (snap.subsystems.fridge) updateFridgeSubsystem(snap.subsystems.fridge);
-
-      if (snap.subsystems.gps_seatalkng) cachedGpsSeatalkng = snap.subsystems.gps_seatalkng;
-      if (snap.subsystems.gps_router) cachedGpsRouter = snap.subsystems.gps_router;
-      if (snap.subsystems.gps) cachedGps = snap.subsystems.gps;
-
-      renderGpsView();
-
-      if (snap.subsystems.seatalkng) {
-        const st = snap.subsystems.seatalkng;
-        if (st.heading || st.attitude) updateSeaTalkNgAttitudeAndHeading(st.heading, st.attitude);
-        if (st.environment) updateEnvironment(st.environment);
-        if (st.ais_status || st.ais_targets) updateAisDirectory(st.ais_status, st.ais_targets);
-      }
-    }
-
-    // ---------------- Alarms Rendering ----------------
-    const alarmContainer = document.getElementById('vessel-alarm-container');
-    if (alarmContainer) {
-      if (snap.alarms && snap.alarms.active_count > 0 && snap.alarms.active_alarms && snap.alarms.active_alarms.length > 0) {
-        const active = snap.alarms.active_alarms[0];
-        const isCritical = active.severity === 'CRITICAL';
-        const msg = (active.last_event && active.last_event.message) || active.description || 'Active vessel alarm';
-        const badgeClass = isCritical ? 'critical' : 'warning';
-        alarmContainer.innerHTML = `
-          <div class="alarm-banner ${isCritical ? 'critical' : 'warning'}" role="alert">
-            <span class="alarm-icon">${isCritical ? '🚨' : '⚠️'}</span>
-            <span class="alarm-msg">${msg}</span>
-            <span class="alarm-badge ${badgeClass}">${active.severity}</span>
-          </div>
-        `;
-      } else {
-        alarmContainer.innerHTML = '';
-      }
-    }
-  }
-
-  // Server Host Click to configure
-  const serverHostEl = document.getElementById('server-host');
-  if (serverHostEl) {
-    serverHostEl.addEventListener('click', () => {
-      const current = getServerHost();
-      const newHost = prompt('Enter Paeraki Dashboard Server (host:port):', current);
-      if (newHost && newHost.trim()) {
-        localStorage.setItem('paeraki_server_host', newHost.trim());
-        window.location.reload();
-      }
-    });
+    return `${latD.toString().padStart(2, '0')}° ${latM.toFixed(3)}' ${latH}, ${lonD.toString().padStart(3, '0')}° ${lonM.toFixed(3)}' ${lonH}`;
   }
 
   // ---------------- Device Authorization & Token Management ----------------
@@ -1677,6 +1572,337 @@
     authModal.addEventListener('click', (e) => {
       if (e.target === authModal) {
         hideAuthModal();
+      }
+    });
+  }
+
+  // ---------------- Cortex Anchor Watch & MoB Handlers ----------------
+  function updateCortexSubsystem(cortex) {
+    if (!cortex) return;
+    const anchor = cortex.anchor;
+    if (anchor) {
+      const isActive = Boolean(anchor.active);
+      if (cortexAnchorStatusBadge) {
+        cortexAnchorStatusBadge.textContent = isActive ? (anchor.drag_alarm ? 'DRAGGING!' : 'ACTIVE') : 'INACTIVE';
+        cortexAnchorStatusBadge.className = 'card-badge ' + (isActive ? (anchor.drag_alarm ? 'critical' : 'teal-badge') : 'gray-badge');
+      }
+      if (valAnchorCoords) {
+        if (anchor.anchor_lat != null && anchor.anchor_lon != null) {
+          valAnchorCoords.textContent = formatNautical(anchor.anchor_lat, anchor.anchor_lon);
+        } else {
+          valAnchorCoords.textContent = "--° --.---' -";
+        }
+      }
+      if (valAnchorDist) {
+        valAnchorDist.textContent = anchor.distance_m != null ? `${Number(anchor.distance_m).toFixed(1)} m` : '--.- m';
+      }
+      if (valAnchorRadius) {
+        valAnchorRadius.textContent = anchor.radius_m != null ? `${Math.round(anchor.radius_m)} m` : '-- m';
+      }
+      if (valAnchorAlarm) {
+        if (anchor.drag_alarm) {
+          valAnchorAlarm.textContent = 'DRAG ALARM';
+          valAnchorAlarm.className = 'submetric-val critical mono';
+        } else if (isActive) {
+          valAnchorAlarm.textContent = 'HOLDING OK';
+          valAnchorAlarm.className = 'submetric-val mono';
+        } else {
+          valAnchorAlarm.textContent = 'OK';
+          valAnchorAlarm.className = 'submetric-val mono';
+        }
+      }
+    }
+  }
+
+  async function handleSilenceAlarm(alarmId, btnEl) {
+    if (!isDeviceAuthorized()) {
+      showAuthModal('Please authenticate with the Skipper PIN to silence vessel alarms.');
+      return;
+    }
+    try {
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = 'Silencing...';
+      }
+      const res = await apiFetch('/api/cortex/silence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alarm_id: alarmId })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.error || 'Failed to silence alarm');
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.textContent = 'Silence';
+        }
+      }
+    } catch (err) {
+      console.error('Failed to silence alarm:', err);
+      alert('Error silencing alarm: ' + err.message);
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = 'Silence';
+      }
+    }
+  }
+
+  async function handleMobTrigger() {
+    if (!isDeviceAuthorized()) {
+      showAuthModal('Please authenticate with the Skipper PIN to authorize emergency vessel actions.');
+      return;
+    }
+    const confirmed = confirm(
+      '⚠️ EMERGENCY MAN OVERBOARD (MoB)\n\n' +
+      'Are you sure you want to trigger a Man Overboard alert?\n\n' +
+      'This will:\n' +
+      '• Log the current GPS coordinates as an emergency waypoint\n' +
+      '• Sound vessel alarms and activate MoB state across all displays'
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await apiFetch('/api/cortex/mob', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.error || 'Failed to trigger MoB');
+      }
+    } catch (err) {
+      console.error('Failed to trigger MoB:', err);
+      alert('Error triggering MoB: ' + err.message);
+    }
+  }
+
+  async function handleMobCancel() {
+    if (!isDeviceAuthorized()) {
+      showAuthModal('Please authenticate with the Skipper PIN to cancel MoB alert.');
+      return;
+    }
+    if (!confirm('Are you sure you want to cancel the active Man Overboard alert?')) {
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/cortex/mob/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.error || 'Failed to cancel MoB');
+      }
+    } catch (err) {
+      console.error('Failed to cancel MoB:', err);
+      alert('Error cancelling MoB: ' + err.message);
+    }
+  }
+
+  if (btnMobTrigger) {
+    btnMobTrigger.addEventListener('click', handleMobTrigger);
+  }
+
+  function updateMobAndAlarms(alarmsData, cortexAlarms, mobData) {
+    const alarmContainer = document.getElementById('vessel-alarm-container');
+    if (!alarmContainer) return;
+
+    let html = '';
+
+    // Render MoB Active Banner if MoB is active
+    if (mobData && mobData.active) {
+      const lat = mobData.latitude;
+      const lon = mobData.longitude;
+      const coordStr = (lat != null && lon != null) ? formatNautical(lat, lon) : 'Coordinates Logged';
+      const timeStr = mobData.timestamp ? new Date(mobData.timestamp).toLocaleTimeString('en-US', { hour12: false }) : '';
+      html += `
+        <div class="mob-active-banner" role="alert">
+          <div>
+            <span style="font-size: 1.4rem; margin-right: 8px;">🛟</span>
+            <strong>MAN OVERBOARD ALERT ACTIVE</strong> — 
+            <span class="mono">${coordStr}</span>
+            <span style="margin-left: 10px; font-size: 0.85rem; opacity: 0.9;">(${escapeHtml(mobData.source || 'Dashboard')} ${timeStr})</span>
+          </div>
+          <button class="mob-cancel-btn" id="btn-mob-cancel" style="background: white; color: #dc2626; border: none; border-radius: 6px; padding: 6px 14px; font-weight: 800; cursor: pointer;">CANCEL MoB</button>
+        </div>
+      `;
+    }
+
+    // Active Cortex alarms
+    const activeCortex = (cortexAlarms || []).filter(a => !a.silenced);
+    activeCortex.forEach(a => {
+      const isCrit = a.severity === 'CRITICAL';
+      const badgeClass = isCrit ? 'critical' : 'warning';
+      html += `
+        <div class="alarm-banner ${isCrit ? 'critical' : 'warning'}" role="alert">
+          <span class="alarm-icon">${isCrit ? '🚨' : '⚠️'}</span>
+          <span class="alarm-msg"><strong>[Cortex]</strong> ${escapeHtml(a.message || a.type || 'Cortex Alert')}</span>
+          <span class="alarm-badge ${badgeClass}">${escapeHtml(a.severity)}</span>
+          ${a.silenceable !== false ? `<button class="alarm-silence-btn" data-cortex-alarm-id="${escapeHtml(a.id)}">Silence</button>` : ''}
+        </div>
+      `;
+    });
+
+    // System Engine Alarms
+    if (alarmsData && alarmsData.active_count > 0 && alarmsData.active_alarms && alarmsData.active_alarms.length > 0) {
+      alarmsData.active_alarms.forEach(active => {
+        const isCritical = active.severity === 'CRITICAL';
+        const msg = (active.last_event && active.last_event.message) || active.description || 'Active vessel alarm';
+        const badgeClass = isCritical ? 'critical' : 'warning';
+        html += `
+          <div class="alarm-banner ${isCritical ? 'critical' : 'warning'}" role="alert">
+            <span class="alarm-icon">${isCritical ? '🚨' : '⚠️'}</span>
+            <span class="alarm-msg">${escapeHtml(msg)}</span>
+            <span class="alarm-badge ${badgeClass}">${escapeHtml(active.severity)}</span>
+          </div>
+        `;
+      });
+    }
+
+    alarmContainer.innerHTML = html;
+
+    // Attach event listener for MoB cancel button if present
+    const btnMobCancel = document.getElementById('btn-mob-cancel');
+    if (btnMobCancel) {
+      btnMobCancel.addEventListener('click', handleMobCancel);
+    }
+
+    // Attach event listeners for Cortex silence buttons
+    const silenceButtons = alarmContainer.querySelectorAll('.alarm-silence-btn');
+    silenceButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const alarmId = e.currentTarget.getAttribute('data-cortex-alarm-id');
+        if (alarmId) handleSilenceAlarm(alarmId, e.currentTarget);
+      });
+    });
+  }
+
+  let socket = null;
+  let reconnectDelay = 1000;
+
+  function connectWebSocket() {
+    const wsUrl = getWsUrl('/ws');
+    console.log('[Paeraki Monitor] Connecting to WebSocket:', wsUrl);
+
+    try {
+      socket = new WebSocket(wsUrl);
+    } catch (e) {
+      console.error('[Paeraki Monitor] WebSocket init error:', e);
+      scheduleReconnect();
+      return;
+    }
+
+    socket.onopen = function() {
+      console.log('[Paeraki Monitor] WebSocket Connected');
+      connDot.className = 'pulse-dot connected';
+      connLabel.textContent = 'Live';
+      reconnectDelay = 1000;
+    };
+
+    socket.onmessage = function(event) {
+      try {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === 'snapshot' && msg.snapshot) {
+          handleSnapshot(msg.snapshot);
+        } else if (msg.type === 'packet' && msg.packet) {
+          if (!isLogPaused) {
+            renderLogRow(msg.packet);
+          }
+          if (msg.snapshot) {
+            handleSnapshot(msg.snapshot);
+          }
+        }
+      } catch (err) {
+        console.error('[Paeraki Monitor] Message parse error:', err);
+      }
+    };
+
+    socket.onclose = function(e) {
+      console.warn('[Paeraki Monitor] WebSocket closed:', e.reason || e.code);
+      connDot.className = 'pulse-dot';
+      connLabel.textContent = 'Reconnecting...';
+      scheduleReconnect();
+    };
+
+    socket.onerror = function(err) {
+      console.error('[Paeraki Monitor] WebSocket error:', err);
+      socket.close();
+    };
+  }
+
+  function scheduleReconnect() {
+    setTimeout(() => {
+      connectWebSocket();
+      reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+    }, reconnectDelay);
+  }
+
+  function handleSnapshot(snap) {
+    if (!snap) return;
+
+    if (snap.broker) {
+      if (totalPacketsEl) totalPacketsEl.textContent = snap.broker.total_packets || 0;
+      if (packetRateEl) packetRateEl.textContent = `${snap.broker.msg_rate || 0.0} /s`;
+      if (brokerEndpoint) brokerEndpoint.textContent = `${snap.broker.host}:${snap.broker.port}`;
+
+      const miscPkts = document.getElementById('misc-total-packets');
+      const miscRate = document.getElementById('misc-packet-rate');
+      const miscHost = document.getElementById('broker-host');
+      if (miscPkts) miscPkts.textContent = `${snap.broker.total_packets || 0} pkts`;
+      if (miscRate) miscRate.textContent = `${snap.broker.msg_rate || 0.0} msg/s`;
+      if (miscHost) miscHost.textContent = `${snap.broker.host}:${snap.broker.port}`;
+
+      if (snap.broker.last_packet_time && lastSeenEl) {
+        const d = new Date(snap.broker.last_packet_time);
+        lastSeenEl.textContent = d.toLocaleTimeString('en-US', { hour12: false });
+      }
+    }
+
+    if (snap.server && snap.server.hostname) {
+      const el = document.getElementById('server-host');
+      if (el) el.textContent = snap.server.hostname ? `${snap.server.hostname} (${getServerHost()})` : getServerHost();
+    }
+
+    if (snap.subsystems) {
+      if (snap.subsystems['72v']) update72vSubsystem(snap.subsystems['72v']);
+      if (snap.subsystems['12v']) update12vSubsystem(snap.subsystems['12v']);
+      if (snap.subsystems.fridge) updateFridgeSubsystem(snap.subsystems.fridge);
+
+      if (snap.subsystems.gps_seatalkng) cachedGpsSeatalkng = snap.subsystems.gps_seatalkng;
+      if (snap.subsystems.gps_router) cachedGpsRouter = snap.subsystems.gps_router;
+      if (snap.subsystems.gps) cachedGps = snap.subsystems.gps;
+
+      renderGpsView();
+
+      if (snap.subsystems.cortex) {
+        updateCortexSubsystem(snap.subsystems.cortex);
+      }
+
+      if (snap.subsystems.seatalkng) {
+        const st = snap.subsystems.seatalkng;
+        if (st.heading || st.attitude) updateSeaTalkNgAttitudeAndHeading(st.heading, st.attitude);
+        if (st.environment) updateEnvironment(st.environment);
+        if (st.ais_status || st.ais_targets) updateAisDirectory(st.ais_status, st.ais_targets);
+      }
+    }
+
+    // ---------------- Alarms & MoB Rendering ----------------
+    const cortexAlarms = (snap.subsystems && snap.subsystems.cortex) ? snap.subsystems.cortex.alarms : null;
+    const mobData = (snap.subsystems && snap.subsystems.mob) ? snap.subsystems.mob : null;
+    updateMobAndAlarms(snap.alarms, cortexAlarms, mobData);
+  }
+
+  // Server Host Click to configure
+  const serverHostEl = document.getElementById('server-host');
+  if (serverHostEl) {
+    serverHostEl.addEventListener('click', () => {
+      const current = getServerHost();
+      const newHost = prompt('Enter Paeraki Dashboard Server (host:port):', current);
+      if (newHost && newHost.trim()) {
+        localStorage.setItem('paeraki_server_host', newHost.trim());
+        window.location.reload();
       }
     });
   }

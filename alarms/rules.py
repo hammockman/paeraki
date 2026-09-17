@@ -542,6 +542,141 @@ class ServiceRestartLoopRule(AlarmRule):
         return False, ""
 
 
+class CortexAnchorDragRule(AlarmRule):
+    """
+    Alerts when Vesper Cortex M1 Hub signals an anchor drag alarm or drift exceeds radius.
+    """
+
+    def __init__(
+        self,
+        debounce_sec: float = 5.0,
+        cooldown_sec: float = 900.0,  # 15 minutes repeat for anchor drag
+    ):
+        super().__init__(
+            name="cortex_anchor_drag",
+            description="Vesper Cortex reports anchor drag beyond safe swing radius",
+            severity=AlarmSeverity.CRITICAL,
+            debounce_sec=debounce_sec,
+            cooldown_sec=cooldown_sec,
+        )
+
+    def evaluate_condition(self, snapshot: dict[str, Any]) -> tuple[bool, AlarmSeverity, str, dict[str, Any]]:
+        cortex = snapshot.get("cortex", {})
+        anchor = cortex.get("anchor", {}) if isinstance(cortex, dict) else {}
+        if not anchor:
+            anchor = snapshot.get("cortex_anchor", {})
+
+        is_active = bool(anchor.get("active", False))
+        drag_alarm = bool(anchor.get("drag_alarm", False))
+        distance_m = anchor.get("distance_m")
+        radius_m = anchor.get("radius_m")
+
+        dist_f = float(distance_m) if distance_m is not None else 0.0
+        rad_f = float(radius_m) if radius_m is not None else 0.0
+
+        in_alarm = drag_alarm or (is_active and rad_f > 0 and dist_f > rad_f)
+        if in_alarm:
+            msg = f"CORTEX ANCHOR DRAG: Vessel drifted {dist_f:.1f}m beyond {rad_f:.1f}m radius."
+            metrics = {
+                "active": is_active,
+                "drag_alarm": drag_alarm,
+                "distance_m": dist_f,
+                "radius_m": rad_f,
+            }
+            return True, AlarmSeverity.CRITICAL, msg, metrics
+
+        return False, AlarmSeverity.CRITICAL, "", {}
+
+    def evaluate_recovery(self, snapshot: dict[str, Any]) -> tuple[bool, str]:
+        cortex = snapshot.get("cortex", {})
+        anchor = cortex.get("anchor", {}) if isinstance(cortex, dict) else {}
+        if not anchor:
+            anchor = snapshot.get("cortex_anchor", {})
+
+        is_active = bool(anchor.get("active", False))
+        drag_alarm = bool(anchor.get("drag_alarm", False))
+        distance_m = anchor.get("distance_m")
+        radius_m = anchor.get("radius_m")
+
+        if not is_active:
+            return True, "Cortex Anchor Watch deactivated."
+
+        dist_f = float(distance_m) if distance_m is not None else 0.0
+        rad_f = float(radius_m) if radius_m is not None else 0.0
+
+        if not drag_alarm and (rad_f <= 0 or dist_f <= (rad_f * 0.90)):
+            return True, f"Vessel recovered within anchor radius ({dist_f:.1f}m / {rad_f:.1f}m)."
+
+        return False, ""
+
+
+class CortexCollisionRiskRule(AlarmRule):
+    """
+    Alerts when Vesper Cortex AIS transponder flags an active CPA/TCPA collision risk.
+    """
+
+    def __init__(
+        self,
+        debounce_sec: float = 10.0,
+        cooldown_sec: float = 1800.0,  # 30 mins repeat
+    ):
+        super().__init__(
+            name="cortex_collision_risk",
+            description="Vesper Cortex detects active AIS collision risk (CPA/TCPA)",
+            severity=AlarmSeverity.WARNING,
+            debounce_sec=debounce_sec,
+            cooldown_sec=cooldown_sec,
+        )
+
+    def evaluate_condition(self, snapshot: dict[str, Any]) -> tuple[bool, AlarmSeverity, str, dict[str, Any]]:
+        cortex = snapshot.get("cortex", {})
+        alarms = cortex.get("alarms", []) if isinstance(cortex, dict) else []
+        if not alarms:
+            alarms = snapshot.get("cortex_alarms", [])
+
+        if not isinstance(alarms, list):
+            return False, AlarmSeverity.WARNING, "", {}
+
+        active_collision_alarms = [
+            a for a in alarms
+            if isinstance(a, dict) and not a.get("silenced", False) and (
+                a.get("type") in ("CollisionRisk", "CPA", "AIS") or "CPA" in str(a.get("message", "")).upper()
+            )
+        ]
+
+        if active_collision_alarms:
+            first = active_collision_alarms[0]
+            sev = AlarmSeverity.CRITICAL if first.get("severity") == "CRITICAL" else AlarmSeverity.WARNING
+            msg = f"CORTEX COLLISION ALERT: {first.get('message', 'AIS Target Risk Detected')}"
+            metrics = {
+                "alarm_id": first.get("id"),
+                "total_active": len(active_collision_alarms),
+            }
+            return True, sev, msg, metrics
+
+        return False, AlarmSeverity.WARNING, "", {}
+
+    def evaluate_recovery(self, snapshot: dict[str, Any]) -> tuple[bool, str]:
+        cortex = snapshot.get("cortex", {})
+        alarms = cortex.get("alarms", []) if isinstance(cortex, dict) else []
+        if not alarms:
+            alarms = snapshot.get("cortex_alarms", [])
+
+        if not isinstance(alarms, list) or len(alarms) == 0:
+            return True, "All Cortex collision alerts cleared."
+
+        has_active = any(
+            isinstance(a, dict) and not a.get("silenced", False) and (
+                a.get("type") in ("CollisionRisk", "CPA", "AIS") or "CPA" in str(a.get("message", "")).upper()
+            )
+            for a in alarms
+        )
+        if not has_active:
+            return True, "Cortex collision alert cleared or silenced."
+
+        return False, ""
+
+
 class AlarmEngine:
     """Orchestrates all alarm rules and tracks vessel-wide alert status."""
 
@@ -550,11 +685,14 @@ class AlarmEngine:
             Low12VCapacityRule(),
             Low72VBatteryRule(),
             BatteryOverheatRule(),
+            CortexAnchorDragRule(),
+            CortexCollisionRiskRule(),
             ServiceRestartLoopRule("12v", "watch_12v.service", "12V Solar Monitor"),
             ServiceRestartLoopRule("72v", "watch_72v.service", "72V BMS Monitor"),
             ServiceRestartLoopRule("gps", "watch_gps.service", "GPS Navigation Monitor"),
             ServiceRestartLoopRule("seatalkng", "paeraki_seatalkng.service", "SeaTalkNG Bus Monitor"),
             ServiceRestartLoopRule("fridge", "watch_fridge.service", "Fridge Monitor"),
+            ServiceRestartLoopRule("cortex", "watch_cortex.service", "Cortex Monitor"),
         ]
         self.snapshot: dict[str, Any] = {
             "72v": {},
@@ -562,6 +700,7 @@ class AlarmEngine:
             "gps": {},
             "charger": {},
             "fridge": {},
+            "cortex": {"anchor": {}, "alarms": [], "telemetry": {}},
             "services": {},
         }
 

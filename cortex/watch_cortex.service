@@ -1,0 +1,15 @@
+[Unit]
+Description=Paeraki Vesper Cortex M1 Telemetry & Control Daemon
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/cortex/watch.py --broker 192.168.1.1
+Restart=always
+RestartSec=15s
+User=jh
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

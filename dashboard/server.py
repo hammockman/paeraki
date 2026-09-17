@@ -23,10 +23,10 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 from battery import BatteryIntegrator, calculate_voltage_soc
 from battery_12v import HouseBatteryIntegrator, calculate_agm_voltage_soc
+from auth import auth_manager, get_current_device_auth, require_control_auth
 
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends
-from dashboard.auth import auth_manager, get_current_device_auth, require_control_auth
+from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -303,6 +303,41 @@ class DashboardState:
             "last_updated": None,
         }
 
+        # Vesper Cortex Hub Telemetry & Controls
+        self.cortex_anchor: dict[str, Any] = {
+            "active": False,
+            "anchor_lat": None,
+            "anchor_lon": None,
+            "radius_m": None,
+            "distance_m": None,
+            "bearing_deg": None,
+            "drag_alarm": False,
+            "last_updated": None,
+        }
+
+        self.cortex_alarms: list[dict[str, Any]] = []
+
+        self.cortex_telemetry: dict[str, Any] = {
+            "connected": False,
+            "host": None,
+            "battery_v": None,
+            "pressure_hpa": None,
+            "firmware": None,
+            "serial": None,
+            "network_status": None,
+            "last_seen": None,
+        }
+
+        self.mob_alert: dict[str, Any] = {
+            "active": False,
+            "timestamp": None,
+            "latitude": None,
+            "longitude": None,
+            "source": None,
+            "user": None,
+            "note": None,
+        }
+
         self.raw_topics: dict[str, Any] = {}
         self.recent_packets = deque(maxlen=150)
         self.ws_clients: set[WebSocket] = set()
@@ -311,6 +346,16 @@ class DashboardState:
             "active_count": 0,
             "active_alarms": [],
         }
+        self.mqtt_client: Any = None
+
+    async def publish(self, topic: str, payload: Any, retain: bool = False) -> bool:
+        """Publishes a payload to MQTT via the active client connection."""
+        if not self.mqtt_client:
+            logger.warning("Cannot publish to %s: MQTT client not connected", topic)
+            return False
+        payload_str = json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
+        await self.mqtt_client.publish(topic, payload_str, retain=retain)
+        return True
 
     def record_packet(self, topic: str, payload_str: str, source: str = "mqtt"):
         now = datetime.now(timezone.utc)
@@ -651,6 +696,20 @@ class DashboardState:
             self.fridge.update(parsed_json)
             self.fridge["last_updated"] = iso_now
 
+        elif topic == "paeraki/cortex/anchor" and isinstance(parsed_json, dict):
+            self.cortex_anchor.update(parsed_json)
+            self.cortex_anchor["last_updated"] = iso_now
+
+        elif topic == "paeraki/cortex/alarms" and isinstance(parsed_json, list):
+            self.cortex_alarms = parsed_json
+
+        elif topic == "paeraki/cortex/telemetry" and isinstance(parsed_json, dict):
+            self.cortex_telemetry.update(parsed_json)
+            self.cortex_telemetry["last_seen"] = iso_now
+
+        elif topic in ("paeraki/cortex/mob/alert", "paeraki/seatalkng/mob") and isinstance(parsed_json, dict):
+            self.mob_alert.update(parsed_json)
+
         else:
             self.raw_topics[topic] = {
                 "value": parsed_json if parsed_json is not None else payload_str,
@@ -762,6 +821,12 @@ class DashboardState:
                 },
                 "charger": self.charger,
                 "fridge": self.fridge,
+                "cortex": {
+                    "anchor": self.cortex_anchor,
+                    "alarms": self.cortex_alarms,
+                    "telemetry": self.cortex_telemetry,
+                },
+                "mob": self.mob_alert,
                 "raw_topics": self.raw_topics,
             },
             "alarms": self.alarms,
@@ -799,6 +864,7 @@ async def mqtt_worker(broker: str, port: int, retry_delay: float = 3.0):
             logger.info("Connecting to Paeraki MQTT broker at %s:%d...", broker, port)
             async with aiomqtt.Client(broker, port=port) as client:
                 state.is_connected = True
+                state.mqtt_client = client
                 logger.info("Connected to Paeraki MQTT broker! Subscribing to '#'...")
                 await client.subscribe("#")
                 await state.broadcast({"type": "connection_status", "connected": True, "broker": f"{broker}:{port}"})
@@ -1164,6 +1230,87 @@ def create_app(broker: str, port: int, enable_mock: bool = False) -> FastAPI:
         uuid = body.get("uuid", "")
         ok = auth_manager.revoke_device(uuid)
         return JSONResponse({"status": "ok", "revoked": ok})
+
+    # --- Cortex & Control Routes ---
+
+    @app.post("/api/cortex/silence")
+    async def cortex_silence(request: Request, auth_ctx: dict = Depends(require_control_auth)):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        alarm_id = body.get("alarm_id")
+        if not alarm_id:
+            return JSONResponse({"error": "alarm_id required"}, status_code=400)
+
+        # Dispatch command via MQTT
+        await state.publish("paeraki/cortex/command", {
+            "command": "silence",
+            "alarm_id": alarm_id,
+            "user": auth_ctx.get("name"),
+        })
+        # Optimistically mark as silenced in state
+        for a in state.cortex_alarms:
+            if a.get("id") == alarm_id:
+                a["silenced"] = True
+
+        await state.broadcast({"type": "snapshot", "snapshot": state.get_snapshot()})
+        return JSONResponse({"status": "ok", "message": f"Alarm {alarm_id} silence requested by {auth_ctx.get('name')}"})
+
+    @app.post("/api/cortex/mob")
+    async def cortex_mob(request: Request, auth_ctx: dict = Depends(require_control_auth)):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not body.get("confirm"):
+            return JSONResponse({"error": "Confirmation required to trigger MoB"}, status_code=400)
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        lat = state.system_gps.get("latitude") or state.system_gps_seatalkng.get("latitude")
+        lon = state.system_gps.get("longitude") or state.system_gps_seatalkng.get("longitude")
+
+        mob_data = {
+            "active": True,
+            "timestamp": now_iso,
+            "latitude": lat,
+            "longitude": lon,
+            "source": "dashboard",
+            "user": auth_ctx.get("name"),
+            "note": "Man Overboard event triggered via Paeraki Dashboard",
+        }
+        state.mob_alert = mob_data
+        await state.publish("paeraki/cortex/command", {"command": "mob", "data": mob_data}, retain=True)
+        await state.publish("paeraki/cortex/mob/alert", mob_data, retain=True)
+        await state.broadcast({"type": "snapshot", "snapshot": state.get_snapshot()})
+        return JSONResponse({"status": "ok", "message": "Man Overboard alert activated!", "mob": mob_data})
+
+    @app.post("/api/cortex/mob/cancel")
+    async def cortex_mob_cancel(request: Request, auth_ctx: dict = Depends(require_control_auth)):
+        state.mob_alert["active"] = False
+        await state.publish("paeraki/cortex/command", {"command": "mob_cancel", "user": auth_ctx.get("name")}, retain=True)
+        await state.publish("paeraki/cortex/mob/alert", {"active": False}, retain=True)
+        await state.broadcast({"type": "snapshot", "snapshot": state.get_snapshot()})
+        return JSONResponse({"status": "ok", "message": "Man Overboard alert cancelled"})
+
+    @app.post("/api/cortex/set_anchor_watch")
+    async def cortex_set_anchor_watch(request: Request, auth_ctx: dict = Depends(require_control_auth)):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        radius = float(body.get("radius", 30.0))
+        lat = body.get("lat")
+        lon = body.get("lon")
+        cmd = {
+            "command": "set_anchor_watch",
+            "radius": radius,
+            "lat": lat,
+            "lon": lon,
+            "user": auth_ctx.get("name"),
+        }
+        await state.publish("paeraki/cortex/command", cmd)
+        return JSONResponse({"status": "ok", "message": f"Anchor watch radius set to {radius}m"})
 
     @app.post("/api/72v/calibrate_soc")
     async def calibrate_soc(request: Request, auth_ctx: dict = Depends(require_control_auth)):
