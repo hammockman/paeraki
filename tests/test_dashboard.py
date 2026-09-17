@@ -236,3 +236,23 @@ def test_dashboard_state_fridge():
     assert state.fridge["compressor_running"] is False
     assert state.fridge["run_mode"] == "Eco"
 
+
+
+def test_dashboard_auth_protection():
+    import asyncio
+    from fastapi import HTTPException
+    from dashboard.auth import require_control_auth
+
+    # Unauthenticated context -> must raise 403
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(require_control_auth(None))
+    assert exc_info.value.status_code == 403
+
+    # Viewer context -> must raise 403
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(require_control_auth({"role": "VIEWER"}))
+    assert exc_info.value.status_code == 403
+
+    # Controller context -> allowed
+    ctx = asyncio.run(require_control_auth({"role": "CONTROLLER", "name": "Skipper"}))
+    assert ctx["name"] == "Skipper"

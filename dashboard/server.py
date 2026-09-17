@@ -25,7 +25,8 @@ from battery import BatteryIntegrator, calculate_voltage_soc
 from battery_12v import HouseBatteryIntegrator, calculate_agm_voltage_soc
 
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends
+from dashboard.auth import auth_manager, get_current_device_auth, require_control_auth
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -1092,8 +1093,80 @@ def create_app(broker: str, port: int, enable_mock: bool = False) -> FastAPI:
             "active_ws_clients": len(state.ws_clients),
         })
 
+    # --- Authentication & Pairing Routes ---
+
+    @app.post("/api/auth/register")
+    async def auth_register(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        uuid = body.get("uuid", "")
+        name = body.get("name", "")
+        if not uuid:
+            return JSONResponse({"error": "Device UUID is required"}, status_code=400)
+        client_ip = request.client.host if request.client else ""
+        req = auth_manager.request_pairing(uuid, name=name, ip=client_ip)
+        return JSONResponse({"status": "ok", "request": req})
+
+    @app.post("/api/auth/verify_pin")
+    async def auth_verify_pin(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        uuid = body.get("uuid", "")
+        pin = body.get("pin", "")
+        name = body.get("name", "")
+        if not uuid or not pin:
+            return JSONResponse({"error": "UUID and PIN required"}, status_code=400)
+
+        client_ip = request.client.host if request.client else ""
+        ok, msg, token = auth_manager.authorize_with_pin(uuid, pin, name=name, ip=client_ip)
+        if not ok:
+            return JSONResponse({"error": msg}, status_code=401)
+        return JSONResponse({"status": "ok", "token": token, "role": "CONTROLLER"})
+
+    @app.get("/api/auth/status")
+    async def auth_status(request: Request):
+        auth_ctx = await get_current_device_auth(request)
+        if not auth_ctx:
+            return JSONResponse({"authenticated": False, "role": "VIEWER"})
+        return JSONResponse({
+            "authenticated": True,
+            "role": auth_ctx.get("role", "CONTROLLER"),
+            "name": auth_ctx.get("name"),
+            "uuid": auth_ctx.get("uuid"),
+        })
+
+    @app.get("/api/auth/pending")
+    async def auth_list_pending(auth_ctx: dict = Depends(require_control_auth)):
+        return JSONResponse(auth_manager.list_pending())
+
+    @app.post("/api/auth/approve")
+    async def auth_approve(request: Request, auth_ctx: dict = Depends(require_control_auth)):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        uuid = body.get("uuid", "")
+        ok, msg, token = auth_manager.approve_pairing(uuid)
+        if not ok:
+            return JSONResponse({"error": msg}, status_code=400)
+        return JSONResponse({"status": "ok", "message": msg})
+
+    @app.post("/api/auth/revoke")
+    async def auth_revoke(request: Request, auth_ctx: dict = Depends(require_control_auth)):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        uuid = body.get("uuid", "")
+        ok = auth_manager.revoke_device(uuid)
+        return JSONResponse({"status": "ok", "revoked": ok})
+
     @app.post("/api/72v/calibrate_soc")
-    async def calibrate_soc(request: Request):
+    async def calibrate_soc(request: Request, auth_ctx: dict = Depends(require_control_auth)):
         try:
             payload = await request.json()
         except Exception:

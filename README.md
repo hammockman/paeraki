@@ -78,6 +78,13 @@ A real-time web dashboard running on **`look`** (`192.168.1.100:8080` / `192.168
   - Auto-scrolling filterable log table displaying incoming vessel packets across topic `#`.
   - Quick filters for **All**, **72V**, **12V**, **GPS**, **SeaTalkNG**, and **Other**.
   - Pause auto-scroll and clear buffer controls.
+- **Role-Based Device Authorization & Control Security**:
+  - **Default Read-Only (`VIEWER`) Access**: Any mobile phone, tablet, or laptop connecting to the boat Wi-Fi can immediately monitor real-time vessel telemetry without requiring credentials.
+  - **Control Role Elevation (`CONTROLLER`)**: Control endpoints (such as battery SOC calibration, remote alarm silencing, and vessel emergency controls) require `CONTROLLER` authorization via FastAPI dependency `require_control_auth`.
+  - **Skipper PIN**: Entering the vessel Skipper PIN (default `1234` or configured via `PAERAKI_SKIPPER_PIN` environment variable) verifies against a salted SHA-256 hash and issues a 256-bit bearer token saved to `localStorage`.
+  - **Console Pairing Approval**: Mobile devices can submit a pairing request from the UI, which can be approved from an authorized helm console.
+  - **Persistent Registry**: Approved devices and tokens persist in `data/authorized_devices.json`.
+  - **Responsive UI**: Header lock indicator (`🔒 Read-Only` / `🔓 Controller`) and modal dialog supporting both Dark and Daylight/Sunlight themes.
 
 ### Accessing the Dashboard
 - **Onboard (Wi-Fi or LAN)**: Open **[`http://192.168.1.100:8080`](http://192.168.1.100:8080)** in any browser (phone, tablet, or touchscreen).

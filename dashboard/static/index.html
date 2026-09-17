@@ -35,6 +35,11 @@
 
       <!-- Controls: High Contrast Button + Status Indicator -->
       <div class="top-controls">
+        <button class="auth-toggle-btn" id="btn-auth-toggle" title="Device Authorization Status">
+          <span id="auth-lock-icon">🔒</span>
+          <span id="auth-lock-text" class="desktop-only">Read-Only</span>
+        </button>
+
         <button class="theme-toggle-btn" id="btn-contrast-toggle" title="Toggle Daylight / Sunlight Theme" aria-label="Toggle Daylight Theme">
           <span class="theme-icon" id="theme-icon">☀️</span>
         </button>
@@ -921,6 +926,33 @@
     </nav>
   </div>
 
-  <script src="/static/app.js?v=20260915_01"></script>
+  <!-- Device Authorization / Skipper PIN Modal -->
+  <div class="auth-modal-backdrop" id="auth-modal" style="display: none;">
+    <div class="auth-modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="sys-badge cyan-badge">SECURITY</span>
+          <h3>Device Control Authorization</h3>
+        </div>
+        <button class="modal-close-btn" id="btn-close-auth-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="auth-modal-desc">This device currently has <strong>Read-Only</strong> access. Enter the Skipper PIN to unlock vessel controls (alarm silencing, system control, calibrations):</p>
+        <div class="pin-input-group">
+          <input type="password" id="input-skipper-pin" placeholder="Enter Skipper PIN" maxlength="8" autocomplete="off" />
+          <button class="pin-submit-btn" id="btn-submit-skipper-pin">Unlock</button>
+        </div>
+        <div id="auth-pin-feedback" class="auth-feedback" style="display: none;"></div>
+
+        <div class="pairing-box">
+          <span class="pairing-title">Pairing Request</span>
+          <p class="pairing-desc">Alternatively, request pairing approval from an authorized helm console:</p>
+          <button class="pairing-btn" id="btn-request-pairing-action">Send Pairing Request</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=20260918_01"></script>
 </body>
 </html>

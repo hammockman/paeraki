@@ -25,6 +25,18 @@
   const lastSeenEl = document.getElementById('last-seen');
   const btnContrastToggle = document.getElementById('btn-contrast-toggle');
 
+  // Auth & Security DOM
+  const btnAuthToggle = document.getElementById('btn-auth-toggle');
+  const authLockIcon = document.getElementById('auth-lock-icon');
+  const authLockText = document.getElementById('auth-lock-text');
+  const authModal = document.getElementById('auth-modal');
+  const authModalDesc = document.getElementById('auth-modal-desc');
+  const btnCloseAuthModal = document.getElementById('btn-close-auth-modal');
+  const inputSkipperPin = document.getElementById('input-skipper-pin');
+  const btnSubmitSkipperPin = document.getElementById('btn-submit-skipper-pin');
+  const authPinFeedback = document.getElementById('auth-pin-feedback');
+  const btnRequestPairingAction = document.getElementById('btn-request-pairing-action');
+
   // Home Tab DOM Elements
   const homeCardPower = document.getElementById('home-card-power');
   const homeCardSpeed = document.getElementById('home-card-speed');
@@ -1422,6 +1434,259 @@
       }
     });
   }
+
+  // ---------------- Device Authorization & Token Management ----------------
+  let currentAuthRole = 'VIEWER';
+  let isAuthorized = false;
+  let pairingPollInterval = null;
+
+  function getAuthToken() {
+    return localStorage.getItem('paeraki_token') || '';
+  }
+
+  function getDeviceUuid() {
+    let uuid = localStorage.getItem('paeraki_device_uuid');
+    if (!uuid) {
+      uuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : 'dev-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      localStorage.setItem('paeraki_device_uuid', uuid);
+    }
+    return uuid;
+  }
+
+  function getDeviceName() {
+    let name = localStorage.getItem('paeraki_device_name');
+    if (!name) {
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      name = isMobile ? 'Mobile Browser' : 'Helm Display';
+      localStorage.setItem('paeraki_device_name', name);
+    }
+    return name;
+  }
+
+  async function apiFetch(path, options = {}) {
+    const url = getApiUrl(path);
+    const opts = { ...options };
+    opts.headers = { ...opts.headers };
+    const token = getAuthToken();
+    if (token) {
+      opts.headers['Authorization'] = `Bearer ${token}`;
+      opts.headers['x-device-token'] = token;
+    }
+    opts.headers['x-device-uuid'] = getDeviceUuid();
+    return fetch(url, opts);
+  }
+
+  function isDeviceAuthorized() {
+    return isAuthorized && currentAuthRole === 'CONTROLLER';
+  }
+
+  function updateAuthUi(status) {
+    if (status && status.authenticated && status.role === 'CONTROLLER') {
+      isAuthorized = true;
+      currentAuthRole = 'CONTROLLER';
+      if (btnAuthToggle) {
+        btnAuthToggle.className = 'auth-toggle-btn authorized';
+        btnAuthToggle.title = `Authorized as Controller (${status.name || 'Device'})`;
+      }
+      if (authLockIcon) authLockIcon.textContent = '🔓';
+      if (authLockText) authLockText.textContent = 'Controller';
+      if (authModalDesc) {
+        authModalDesc.innerHTML = `This device is <strong>Authorized as CONTROLLER</strong> (${escapeHtml(status.name || 'Device')}). Controls are unlocked.`;
+      }
+    } else {
+      isAuthorized = false;
+      currentAuthRole = 'VIEWER';
+      if (btnAuthToggle) {
+        btnAuthToggle.className = 'auth-toggle-btn';
+        btnAuthToggle.title = 'Device Authorization: Read-Only (Click to Unlock)';
+      }
+      if (authLockIcon) authLockIcon.textContent = '🔒';
+      if (authLockText) authLockText.textContent = 'Read-Only';
+      if (authModalDesc) {
+        authModalDesc.innerHTML = 'This device currently has <strong>Read-Only</strong> access. Enter the Skipper PIN to unlock vessel controls (alarm silencing, system control, calibrations):';
+      }
+    }
+  }
+
+  async function checkAuthStatus() {
+    try {
+      const res = await apiFetch('/api/auth/status');
+      if (res.ok) {
+        const data = await res.json();
+        updateAuthUi(data);
+        return data;
+      }
+    } catch (e) {
+      console.warn('Auth status check failed:', e);
+    }
+    updateAuthUi({ authenticated: false, role: 'VIEWER' });
+    return { authenticated: false, role: 'VIEWER' };
+  }
+
+  function showAuthModal(customDesc) {
+    if (authPinFeedback) {
+      authPinFeedback.style.display = 'none';
+      authPinFeedback.textContent = '';
+      authPinFeedback.className = 'auth-feedback';
+    }
+    if (inputSkipperPin) {
+      inputSkipperPin.value = '';
+    }
+    if (customDesc && authModalDesc) {
+      authModalDesc.innerHTML = `<span class="auth-modal-alert-notice">${escapeHtml(customDesc)}</span><br><br>Enter Skipper PIN to unlock controls:`;
+    }
+    if (authModal) {
+      authModal.style.display = 'flex';
+      if (inputSkipperPin) inputSkipperPin.focus();
+    }
+  }
+
+  function hideAuthModal() {
+    if (authModal) authModal.style.display = 'none';
+    if (pairingPollInterval) {
+      clearInterval(pairingPollInterval);
+      pairingPollInterval = null;
+    }
+  }
+
+  async function submitSkipperPin() {
+    const pin = inputSkipperPin ? inputSkipperPin.value.trim() : '';
+    if (!pin) {
+      if (authPinFeedback) {
+        authPinFeedback.textContent = 'Please enter the Skipper PIN';
+        authPinFeedback.className = 'auth-feedback error';
+        authPinFeedback.style.display = 'block';
+      }
+      return;
+    }
+
+    try {
+      const res = await fetch(getApiUrl('/api/auth/verify_pin'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uuid: getDeviceUuid(),
+          pin: pin,
+          name: getDeviceName()
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'ok' && data.token) {
+        localStorage.setItem('paeraki_token', data.token);
+        if (authPinFeedback) {
+          authPinFeedback.textContent = '✓ Skipper PIN verified! Controller access unlocked.';
+          authPinFeedback.className = 'auth-feedback success';
+          authPinFeedback.style.display = 'block';
+        }
+        updateAuthUi({ authenticated: true, role: 'CONTROLLER', name: getDeviceName() });
+        setTimeout(() => {
+          hideAuthModal();
+        }, 1000);
+      } else {
+        if (authPinFeedback) {
+          authPinFeedback.textContent = data.error || 'Invalid Skipper PIN';
+          authPinFeedback.className = 'auth-feedback error';
+          authPinFeedback.style.display = 'block';
+        }
+      }
+    } catch (err) {
+      if (authPinFeedback) {
+        authPinFeedback.textContent = 'Connection error: ' + err.message;
+        authPinFeedback.className = 'auth-feedback error';
+        authPinFeedback.style.display = 'block';
+      }
+    }
+  }
+
+  async function requestPairing() {
+    try {
+      if (btnRequestPairingAction) btnRequestPairingAction.disabled = true;
+      const res = await fetch(getApiUrl('/api/auth/register'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uuid: getDeviceUuid(),
+          name: getDeviceName()
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'ok') {
+        if (authPinFeedback) {
+          authPinFeedback.textContent = 'Pairing request sent to helm console. Waiting for approval...';
+          authPinFeedback.className = 'auth-feedback info';
+          authPinFeedback.style.display = 'block';
+        }
+        if (pairingPollInterval) clearInterval(pairingPollInterval);
+        pairingPollInterval = setInterval(async () => {
+          const auth = await checkAuthStatus();
+          if (auth && auth.authenticated && auth.role === 'CONTROLLER') {
+            clearInterval(pairingPollInterval);
+            pairingPollInterval = null;
+            if (authPinFeedback) {
+              authPinFeedback.textContent = '✓ Pairing approved by helm console!';
+              authPinFeedback.className = 'auth-feedback success';
+            }
+            setTimeout(() => {
+              hideAuthModal();
+            }, 1000);
+          }
+        }, 3000);
+      } else {
+        if (authPinFeedback) {
+          authPinFeedback.textContent = data.error || 'Pairing request failed';
+          authPinFeedback.className = 'auth-feedback error';
+          authPinFeedback.style.display = 'block';
+        }
+      }
+    } catch (err) {
+      if (authPinFeedback) {
+        authPinFeedback.textContent = 'Error sending request: ' + err.message;
+        authPinFeedback.className = 'auth-feedback error';
+        authPinFeedback.style.display = 'block';
+      }
+    } finally {
+      if (btnRequestPairingAction) btnRequestPairingAction.disabled = false;
+    }
+  }
+
+  // Attach Auth DOM Listeners
+  if (btnAuthToggle) {
+    btnAuthToggle.addEventListener('click', () => {
+      showAuthModal();
+    });
+  }
+  if (btnCloseAuthModal) {
+    btnCloseAuthModal.addEventListener('click', hideAuthModal);
+  }
+  if (btnSubmitSkipperPin) {
+    btnSubmitSkipperPin.addEventListener('click', submitSkipperPin);
+  }
+  if (inputSkipperPin) {
+    inputSkipperPin.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        submitSkipperPin();
+      }
+    });
+  }
+  if (btnRequestPairingAction) {
+    btnRequestPairingAction.addEventListener('click', requestPairing);
+  }
+  if (authModal) {
+    authModal.addEventListener('click', (e) => {
+      if (e.target === authModal) {
+        hideAuthModal();
+      }
+    });
+  }
+
+  // Check auth status right away
+  checkAuthStatus().then(() => {
+    if (urlParams.get('auth_modal') === '1') {
+      showAuthModal();
+    }
+  });
 
   // Initial HTTP snapshot fetch for instant load
   fetch(getApiUrl('/api/state'))
