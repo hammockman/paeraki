@@ -6,7 +6,8 @@
 set -e
 
 IFACE="${1:-wlan1}"
-DEFAULT_SSID="BF_TECH"
+DEFAULT_SSID="BF_TECH_419A99"
+DEFAULT_PASS="BFKJ1688"
 DEFAULT_CHARGER_IP="192.168.4.1"
 
 echo "=========================================================="
@@ -41,7 +42,9 @@ echo "----------------------------------------------------------"
 read -rp "Enter Charger AP SSID [default: $DEFAULT_SSID]: " SSID
 SSID="${SSID:-$DEFAULT_SSID}"
 
-read -rp "Enter Charger AP Password (leave blank if open network): " PASS
+read -rp "Enter Charger AP Password [default: $DEFAULT_PASS] (press space+enter or '-' for open): " PASS
+PASS="${PASS:-$DEFAULT_PASS}"
+[ "$PASS" = "-" ] && PASS=""
 
 CON_NAME="BF_TECH_CHARGER"
 
