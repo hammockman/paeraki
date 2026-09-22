@@ -1,0 +1,15 @@
+[Unit]
+Description=Paeraki Vessel Telemetry Buffer Logger (3-day rolling)
+After=network.target
+
+[Service]
+Type=simple
+User=jh
+Group=jh
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/logger/buffer_logger.py --db-path /home/jh/paeraki/data/paeraki_buffer.db --retention-days 3.0 --broker 192.168.1.1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

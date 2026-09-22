@@ -1,0 +1,10 @@
+[Unit]
+Description=Paeraki Telemetry Backfill Sync from sing
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/usr/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/logger/sync_historian.py --sing-host 192.168.1.123,192.168.50.158
+StandardOutput=journal
+StandardError=journal

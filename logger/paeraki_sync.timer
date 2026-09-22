@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Paeraki Telemetry Sync from sing (every 15 mins)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
