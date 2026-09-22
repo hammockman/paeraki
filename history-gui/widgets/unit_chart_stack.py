@@ -119,11 +119,11 @@ class UnitPlotContainer(QFrame):
         for m in self.metrics:
             pen = pg.mkPen(color=m.color, width=2)
             if needs_dual_v and m.id.startswith("12v"):
-                self.secondary_curve = pg.PlotDataItem(pen=pen, name=f"{m.name} ({m.unit})")
+                self.secondary_curve = pg.PlotDataItem(pen=pen, name=f"{m.name} ({m.unit})", connect="finite")
                 self.secondary_view.addItem(self.secondary_curve)
                 self.secondary_metric_id = m.id
             else:
-                curve = self.plot_widget.plot(pen=pen, name=f"{m.name} ({m.unit})")
+                curve = self.plot_widget.plot(pen=pen, name=f"{m.name} ({m.unit})", connect="finite")
                 self.curves[m.id] = curve
 
         # Synchronized vertical crosshair cursor line
@@ -273,14 +273,14 @@ class UnitChartStack(QWidget):
                 all_t_min.append(float(t_arr[0]))
                 all_t_max.append(float(t_arr[-1]))
 
-                y_arr = np.array([r.get(m.column) or 0.0 for r in rows], dtype=np.float64)
+                y_arr = np.array([np.nan if r.get(m.column) is None else float(r.get(m.column)) for r in rows], dtype=np.float64)
 
                 if container.secondary_metric_id == m.id and container.secondary_curve:
-                    container.secondary_curve.setData(t_arr, y_arr)
+                    container.secondary_curve.setData(t_arr, y_arr, connect="finite")
                     if container.secondary_view:
                         container.secondary_view.enableAutoRange(axis="y")
                 elif m.id in container.curves:
-                    container.curves[m.id].setData(t_arr, y_arr)
+                    container.curves[m.id].setData(t_arr, y_arr, connect="finite")
 
             container.plot_widget.enableAutoRange(axis="y")
 

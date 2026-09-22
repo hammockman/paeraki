@@ -70,12 +70,13 @@ class Tab12V(QWidget):
         self.plot_batt.setLabel("left", "Battery Voltage", units="V", color="#38bdf8")
 
         self.curve_batt_v = self.plot_batt.plot(
-            pen=None,
+            pen=pg.mkPen("#38bdf8", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#38bdf8"),
             name="Battery Voltage (V)",
+            connect="finite",
         )
 
         # 2. Solar Generation (+ve) & DC Load Power (-ve) (W)
@@ -98,20 +99,22 @@ class Tab12V(QWidget):
         self.plot_solar.addItem(zero_line)
 
         self.curve_solar_w = self.plot_solar.plot(
-            pen=None,
+            pen=pg.mkPen("#f59e0b", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#f59e0b"),
             name="Solar Power (+ve W)",
+            connect="finite",
         )
         self.curve_load_w = self.plot_solar.plot(
-            pen=None,
+            pen=pg.mkPen("#ec4899", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#ec4899"),
             name="DC Load Power (-ve W)",
+            connect="finite",
         )
 
         # Add crosshairs
@@ -167,13 +170,13 @@ class Tab12V(QWidget):
 
         timestamps_sec = np.array([r["epoch_ms"] / 1000.0 for r in rows], dtype=np.float64)
         self._timestamps = timestamps_sec
-        batt_v = np.array([r.get("battery_voltage") or 0.0 for r in rows], dtype=np.float64)
-        solar_w = np.array([abs(r.get("solar_power") or 0.0) for r in rows], dtype=np.float64)
-        load_w = np.array([-abs(r.get("load_power") or 0.0) for r in rows], dtype=np.float64)
+        batt_v = np.array([np.nan if r.get("battery_voltage") is None else float(r.get("battery_voltage")) for r in rows], dtype=np.float64)
+        solar_w = np.array([np.nan if r.get("solar_power") is None else abs(float(r.get("solar_power"))) for r in rows], dtype=np.float64)
+        load_w = np.array([np.nan if r.get("load_power") is None else -abs(float(r.get("load_power"))) for r in rows], dtype=np.float64)
 
-        self.curve_batt_v.setData(timestamps_sec, batt_v)
-        self.curve_solar_w.setData(timestamps_sec, solar_w)
-        self.curve_load_w.setData(timestamps_sec, load_w)
+        self.curve_batt_v.setData(timestamps_sec, batt_v, connect="finite")
+        self.curve_solar_w.setData(timestamps_sec, solar_w, connect="finite")
+        self.curve_load_w.setData(timestamps_sec, load_w, connect="finite")
 
         self.plot_batt.enableAutoRange(axis="y")
         self.plot_solar.enableAutoRange(axis="y")
@@ -191,11 +194,13 @@ class Tab12V(QWidget):
         latest = rows[-1]
         cur_bv = latest.get("battery_voltage") or 0.0
         cur_chg_i = latest.get("battery_charge_current") or 0.0
-        min_bv = np.min(batt_v)
-        max_bv = np.max(batt_v)
+        valid_bv = batt_v[np.isfinite(batt_v)]
+        min_bv = float(np.min(valid_bv)) if len(valid_bv) > 0 else 0.0
+        max_bv = float(np.max(valid_bv)) if len(valid_bv) > 0 else 0.0
 
         cur_sw = latest.get("solar_power") or 0.0
-        peak_sw = np.max(solar_w)
+        valid_sw = solar_w[np.isfinite(solar_w)]
+        peak_sw = float(np.max(valid_sw)) if len(valid_sw) > 0 else 0.0
         cur_sa = latest.get("solar_current") or 0.0
         cur_sv = latest.get("solar_voltage") or 0.0
 

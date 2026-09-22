@@ -93,12 +93,13 @@ class TabGPS(QWidget):
         self.plot_sog.setLabel("left", "Speed", units="kts", color="#00e5ff")
 
         self.curve_sog = self.plot_sog.plot(
-            pen=None,
+            pen=pg.mkPen("#00e5ff", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#00e5ff"),
             name="SOG (knots)",
+            connect="finite",
         )
 
         # 2. Heading & Altitude Plot
@@ -113,12 +114,13 @@ class TabGPS(QWidget):
         self.plot_cog.setXLink(self.plot_sog)
 
         self.curve_cog = self.plot_cog.plot(
-            pen=None,
+            pen=pg.mkPen("#10b981", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#10b981"),
             name="COG (°)",
+            connect="finite",
         )
 
         # Synchronized crosshairs for SOG and COG
@@ -150,7 +152,8 @@ class TabGPS(QWidget):
 
         # Track line & scatter points
         self.curve_track = self.plot_map.plot(
-            pen=pg.mkPen(color="#0284c7", width=2, style=Qt.PenStyle.DashLine)
+            pen=pg.mkPen(color="#0284c7", width=2, style=Qt.PenStyle.DashLine),
+            connect="finite",
         )
         self.scatter_track = pg.ScatterPlotItem(size=8, pen=None)
         self.plot_map.addItem(self.scatter_track)
@@ -224,11 +227,11 @@ class TabGPS(QWidget):
 
         timestamps_sec = np.array([r["epoch_ms"] / 1000.0 for r in rows], dtype=np.float64)
         self._timestamps = timestamps_sec
-        sogs = np.array([r.get("sog_knots") or 0.0 for r in rows], dtype=np.float64)
-        cogs = np.array([r.get("cog_true") or 0.0 for r in rows], dtype=np.float64)
+        sogs = np.array([np.nan if r.get("sog_knots") is None else float(r.get("sog_knots")) for r in rows], dtype=np.float64)
+        cogs = np.array([np.nan if r.get("cog_true") is None else float(r.get("cog_true")) for r in rows], dtype=np.float64)
 
-        self.curve_sog.setData(timestamps_sec, sogs)
-        self.curve_cog.setData(timestamps_sec, cogs)
+        self.curve_sog.setData(timestamps_sec, sogs, connect="finite")
+        self.curve_cog.setData(timestamps_sec, cogs, connect="finite")
         self.plot_sog.enableAutoRange(axis="y")
 
         if len(timestamps_sec) > 1:
@@ -245,11 +248,13 @@ class TabGPS(QWidget):
         lon_naut = "No coordinates"
 
         if valid_coords:
+            track_lats = np.array([float(r["latitude"]) if (r.get("latitude") is not None and abs(r["latitude"]) > 0.1) else np.nan for r in rows], dtype=np.float64)
+            track_lons = np.array([float(r["longitude"]) if (r.get("longitude") is not None and abs(r["longitude"]) > 0.1) else np.nan for r in rows], dtype=np.float64)
+            self.curve_track.setData(track_lons, track_lats, connect="finite")
+
             lats = np.array([r["latitude"] for r in valid_coords], dtype=np.float64)
             lons = np.array([r["longitude"] for r in valid_coords], dtype=np.float64)
             speeds = np.array([r.get("sog_knots") or 0.0 for r in valid_coords], dtype=np.float64)
-
-            self.curve_track.setData(lons, lats)
 
             # Color dots by speed: Blue (0 kts) -> Cyan (2-4 kts) -> Amber (5+ kts)
             spots = []

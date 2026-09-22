@@ -94,31 +94,34 @@ class Tab72V(QWidget):
 
         # Curves
         self.curve_voltage = self.plot_vp.plot(
-            pen=None,
+            pen=pg.mkPen("#00e5ff", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#00e5ff"),
             name="Voltage (V)",
+            connect="finite",
         )
         self.curve_current = pg.PlotDataItem(
-            pen=None,
+            pen=pg.mkPen("#10b981", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#10b981"),
             name="Current (A)",
+            connect="finite",
         )
         self.view_current.addItem(self.curve_current)
 
         # Charger Current Curve
         self.curve_charger_current = pg.PlotDataItem(
-            pen=None,
+            pen=pg.mkPen("#38bdf8", width=1.5),
             symbol="t",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#38bdf8"),
             name="Charger Current (A)",
+            connect="finite",
         )
         self.view_current.addItem(self.curve_charger_current)
 
@@ -150,28 +153,31 @@ class Tab72V(QWidget):
         self.plot_bottom.setXLink(self.plot_vp)
 
         self.curve_power = self.plot_bottom.plot(
-            pen=None,
+            pen=pg.mkPen("#fbbf24", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#fbbf24"),
             name="Power (W)",
+            connect="finite",
         )
         self.curve_charger_power = self.plot_bottom.plot(
-            pen=None,
+            pen=pg.mkPen("#c084fc", width=1.5),
             symbol="t",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#c084fc"),
             name="Charger Power (W)",
+            connect="finite",
         )
         self.curve_delta = pg.PlotDataItem(
-            pen=None,
+            pen=pg.mkPen("#f43f5e", width=1.5),
             symbol="o",
-            symbolSize=4,
+            symbolSize=3,
             symbolPen=None,
             symbolBrush=pg.mkBrush("#f43f5e"),
             name="Cell Delta (mV)",
+            connect="finite",
         )
         self.view_delta.addItem(self.curve_delta)
 
@@ -284,16 +290,16 @@ class Tab72V(QWidget):
         # Extract arrays
         timestamps_sec = np.array([r["epoch_ms"] / 1000.0 for r in rows], dtype=np.float64)
         self._timestamps = timestamps_sec
-        voltages = np.array([r.get("total_voltage") or 0.0 for r in rows], dtype=np.float64)
-        currents = np.array([r.get("current") or 0.0 for r in rows], dtype=np.float64)
-        powers = np.array([r.get("power") or 0.0 for r in rows], dtype=np.float64)
-        deltas = np.array([r.get("cell_delta_mv") or 0.0 for r in rows], dtype=np.float64)
+        voltages = np.array([np.nan if r.get("total_voltage") is None else float(r.get("total_voltage")) for r in rows], dtype=np.float64)
+        currents = np.array([np.nan if r.get("current") is None else float(r.get("current")) for r in rows], dtype=np.float64)
+        powers = np.array([np.nan if r.get("power") is None else float(r.get("power")) for r in rows], dtype=np.float64)
+        deltas = np.array([np.nan if r.get("cell_delta_mv") is None else float(r.get("cell_delta_mv")) for r in rows], dtype=np.float64)
 
         # Plot curves
-        self.curve_voltage.setData(timestamps_sec, voltages)
-        self.curve_current.setData(timestamps_sec, currents)
-        self.curve_power.setData(timestamps_sec, powers)
-        self.curve_delta.setData(timestamps_sec, deltas)
+        self.curve_voltage.setData(timestamps_sec, voltages, connect="finite")
+        self.curve_current.setData(timestamps_sec, currents, connect="finite")
+        self.curve_power.setData(timestamps_sec, powers, connect="finite")
+        self.curve_delta.setData(timestamps_sec, deltas, connect="finite")
 
         if len(timestamps_sec) > 1:
             t_min = float(timestamps_sec[0])
@@ -312,11 +318,13 @@ class Tab72V(QWidget):
         # Update KPI statistics
         latest = rows[-1]
         cur_v = latest.get("total_voltage") or 0.0
-        min_v = np.min(voltages)
-        max_v = np.max(voltages)
+        valid_v = voltages[np.isfinite(voltages)]
+        min_v = float(np.min(valid_v)) if len(valid_v) > 0 else 0.0
+        max_v = float(np.max(valid_v)) if len(valid_v) > 0 else 0.0
 
         cur_p = latest.get("power") or 0.0
-        peak_p = np.max(powers)
+        valid_p = powers[np.isfinite(powers)]
+        peak_p = float(np.max(valid_p)) if len(valid_p) > 0 else 0.0
         cur_i = latest.get("current") or 0.0
 
         cur_d = latest.get("cell_delta_mv") or 0
@@ -355,11 +363,11 @@ class Tab72V(QWidget):
             self.curve_charger_power.clear()
             return
         timestamps_sec = np.array([r["epoch_ms"] / 1000.0 for r in rows], dtype=np.float64)
-        currents = np.array([r.get("output_current") or 0.0 for r in rows], dtype=np.float64)
-        powers = np.array([r.get("output_power") or 0.0 for r in rows], dtype=np.float64)
+        currents = np.array([np.nan if r.get("output_current") is None else float(r.get("output_current")) for r in rows], dtype=np.float64)
+        powers = np.array([np.nan if r.get("output_power") is None else float(r.get("output_power")) for r in rows], dtype=np.float64)
 
-        self.curve_charger_current.setData(timestamps_sec, currents)
-        self.curve_charger_power.setData(timestamps_sec, powers)
+        self.curve_charger_current.setData(timestamps_sec, currents, connect="finite")
+        self.curve_charger_power.setData(timestamps_sec, powers, connect="finite")
 
     def _render_cell_bars(self, row: dict[str, Any]):
         cell_json = row.get("cell_voltages_json")
