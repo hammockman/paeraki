@@ -250,8 +250,9 @@ class DashboardState:
 
         # SeaTalkNG Environmental / Barometer (Vesper Cortex)
         self.seatalkng_environment: dict[str, Any] = {
-            "pressure_hpa": None,
-            "trend": "Steady",
+            "pressure_hpa": 998.6,
+            "trend": "STale",
+            "is_stale": True,
             "last_updated": None,
         }
 
@@ -512,11 +513,18 @@ class DashboardState:
                 })
 
             # Update environment / barometer
-            if parsed_json.get("pressure_hpa") is not None:
+            press = parsed_json.get("pressure_hpa")
+            if press is not None:
                 self.seatalkng_environment.update({
-                    "pressure_hpa": parsed_json.get("pressure_hpa"),
+                    "pressure_hpa": press,
                     "trend": "Steady",
+                    "is_stale": False,
                     "last_updated": iso_now,
+                })
+            else:
+                self.seatalkng_environment.update({
+                    "trend": "STale",
+                    "is_stale": True,
                 })
 
             # Mark AIS / Cortex as active

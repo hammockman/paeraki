@@ -363,6 +363,27 @@ def test_cortex_control_flow():
 
     asyncio.run(_run_tests())
 
+def test_barometer_stale_handling():
+    import dashboard.server as srv
+    state = srv.DashboardState()
 
+    # Initial state should have last known value and be flagged stale
+    assert state.seatalkng_environment["pressure_hpa"] == 998.6
+    assert state.seatalkng_environment["is_stale"] is True
+    assert state.seatalkng_environment["trend"] == "STale"
 
+    # Ingest live packet with valid pressure
+    live_pkt = {"pressure_hpa": 1013.2}
+    state.record_packet("paeraki/seatalkng/state", json.dumps(live_pkt))
+    assert state.seatalkng_environment["pressure_hpa"] == 1013.2
+    assert state.seatalkng_environment["is_stale"] is False
+    assert state.seatalkng_environment["trend"] == "Steady"
+
+    # Ingest packet with null pressure (sensor offline/no frames)
+    offline_pkt = {"pressure_hpa": None}
+    state.record_packet("paeraki/seatalkng/state", json.dumps(offline_pkt))
+    # Last known pressure preserved, flagged stale
+    assert state.seatalkng_environment["pressure_hpa"] == 1013.2
+    assert state.seatalkng_environment["is_stale"] is True
+    assert state.seatalkng_environment["trend"] == "STale"
 

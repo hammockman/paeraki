@@ -1445,6 +1445,14 @@ html, body {
   margin-bottom: 2px;
 }
 
+.home-failover-tag {
+  color: var(--accent-red, #ef4444);
+  font-weight: 800;
+  margin-left: 4px;
+  font-size: 0.85em;
+  letter-spacing: 0.04em;
+}
+
 .home-trio-val-group {
   display: flex;
   align-items: baseline;

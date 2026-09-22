@@ -34,8 +34,10 @@
 
   const homeVal72vW = document.getElementById('home-val-72v-w');
   const homeVal72vSub = document.getElementById('home-val-72v-sub');
+  const homeLabelGpsSog = document.getElementById('home-label-gps-sog');
   const homeValGpsSog = document.getElementById('home-val-gps-sog');
   const homeValGpsSogSub = document.getElementById('home-val-gps-sog-sub');
+  const homeLabelGpsCog = document.getElementById('home-label-gps-cog');
   const homeValGpsCog = document.getElementById('home-val-gps-cog');
   const homeValGpsCardinal = document.getElementById('home-val-gps-cardinal');
   const homeValGpsSats = document.getElementById('home-val-gps-sats');
@@ -371,13 +373,34 @@
       }
     }
 
-    // 3. Navigation Instrument (SOG + Heading COG)
-    if (cachedGps) {
-      const hasFix = Boolean(cachedGps.fix);
-      const sogKnots = parseFloat(cachedGps.sog_knots) || 0.0;
-      const sogKmh = parseFloat(cachedGps.sog_kmh) || (sogKnots * 1.852);
-      const cogTrue = cachedGps.cog_true !== null && cachedGps.cog_true !== undefined ? parseFloat(cachedGps.cog_true) : null;
-      const sats = cachedGps.satellites !== undefined ? cachedGps.satellites : '--';
+    // 3. Navigation Instrument (SOG + Heading COG with RUT955 Failover)
+    const stHasFix = Boolean(cachedGpsSeatalkng && cachedGpsSeatalkng.fix);
+    const rtHasFix = Boolean(cachedGpsRouter && cachedGpsRouter.fix);
+    const useFailover = !stHasFix && rtHasFix;
+    const navGps = useFailover ? cachedGpsRouter : (cachedGpsSeatalkng || cachedGps);
+
+    if (homeLabelGpsSog) {
+      if (useFailover) {
+        homeLabelGpsSog.innerHTML = 'SPEED (SOG) <span class="home-failover-tag">RUT955</span>';
+      } else {
+        homeLabelGpsSog.textContent = 'SPEED (SOG)';
+      }
+    }
+
+    if (homeLabelGpsCog) {
+      if (useFailover) {
+        homeLabelGpsCog.innerHTML = 'HEADING (COG) <span class="home-failover-tag">RUT955</span>';
+      } else {
+        homeLabelGpsCog.textContent = 'HEADING (COG)';
+      }
+    }
+
+    if (navGps) {
+      const hasFix = Boolean(navGps.fix);
+      const sogKnots = parseFloat(navGps.sog_knots) || 0.0;
+      const sogKmh = parseFloat(navGps.sog_kmh) || (sogKnots * 1.852);
+      const cogTrue = navGps.cog_true !== null && navGps.cog_true !== undefined ? parseFloat(navGps.cog_true) : null;
+      const sats = navGps.satellites !== undefined ? navGps.satellites : '--';
 
       if (homeValGpsSog) homeValGpsSog.textContent = sogKnots.toFixed(1);
       if (homeValGpsSogSub) homeValGpsSogSub.textContent = `${sogKmh.toFixed(1)} km/h`;
@@ -389,7 +412,11 @@
         homeValGpsCardinal.textContent = cogTrue !== null ? getCardinalDirection(cogTrue) : '--';
       }
       if (homeValGpsSats) {
-        homeValGpsSats.textContent = hasFix ? `3D Fix (${sats} sats)` : 'Searching...';
+        if (useFailover) {
+          homeValGpsSats.textContent = `RUT955 (${sats} sats)`;
+        } else {
+          homeValGpsSats.textContent = hasFix ? `3D Fix (${sats} sats)` : 'Searching...';
+        }
       }
     }
   }
@@ -1021,17 +1048,43 @@
   }
 
   // ---------------- Atmospheric Barometer ----------------
+  let lastKnownBaroHpa = 998.6;
+
   function updateEnvironment(env) {
     if (!env) return;
     const p = env.pressure_hpa !== null && env.pressure_hpa !== undefined ? parseFloat(env.pressure_hpa) : null;
+    if (p !== null && !isNaN(p)) {
+      lastKnownBaroHpa = p;
+    }
+
+    const isStale = Boolean(env.is_stale) || (env.trend && env.trend.toLowerCase().includes('stale'));
+
     if (valBaroHpa) {
-      valBaroHpa.textContent = p !== null ? p.toFixed(1) : '----.-';
+      if (p !== null && !isNaN(p)) {
+        valBaroHpa.textContent = p.toFixed(1);
+      } else if (lastKnownBaroHpa !== null) {
+        valBaroHpa.textContent = lastKnownBaroHpa.toFixed(1);
+      } else {
+        valBaroHpa.textContent = '----.-';
+      }
     }
-    if (valBaroTrend) {
-      valBaroTrend.textContent = env.trend || 'Steady';
-    }
-    if (miscBaroTrendBadge) {
-      miscBaroTrendBadge.textContent = (env.trend || 'STEADY').toUpperCase();
+
+    if (isStale) {
+      if (valBaroTrend) {
+        valBaroTrend.textContent = 'STale';
+      }
+      if (miscBaroTrendBadge) {
+        miscBaroTrendBadge.textContent = 'STALE';
+        miscBaroTrendBadge.className = 'card-badge red-badge';
+      }
+    } else {
+      if (valBaroTrend) {
+        valBaroTrend.textContent = env.trend || 'Steady';
+      }
+      if (miscBaroTrendBadge) {
+        miscBaroTrendBadge.textContent = (env.trend || 'STEADY').toUpperCase();
+        miscBaroTrendBadge.className = 'card-badge teal-badge';
+      }
     }
   }
 
