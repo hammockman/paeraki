@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import random
 import signal
 import sys
@@ -87,17 +88,22 @@ class JBDBleClient:
         await asyncio.sleep(0.3)
 
     async def disconnect(self):
-        if self.client and self.client.is_connected:
+        if self.client:
             try:
-                await self.client.stop_notify(UUID_NOTIFY)
-            except Exception:
-                pass
-            try:
-                await self.client.disconnect()
-            except Exception:
-                pass
-            logger.info("Disconnected from JBD BMS")
-        self.client = None
+                if self.client.is_connected:
+                    try:
+                        await asyncio.wait_for(self.client.stop_notify(UUID_NOTIFY), timeout=2.0)
+                    except Exception:
+                        pass
+                    try:
+                        await asyncio.wait_for(self.client.disconnect(), timeout=3.0)
+                    except Exception:
+                        pass
+                    logger.info("Disconnected from JBD BMS")
+            except Exception as e:
+                logger.debug("Error during disconnect: %s", e)
+            finally:
+                self.client = None
 
     async def query(self, query_cmd: bytes, timeout: float = 4.0) -> bytes:
         if not self.client or not self.client.is_connected:
@@ -293,7 +299,7 @@ async def main():
                                 "72V BMS BLE failed %d consecutive times. Exiting process to trigger systemd restart.",
                                 consecutive_ble_failures,
                             )
-                            sys.exit(1)
+                            os._exit(1)
                         if args.once:
                             shutdown_event.set()
                             break
@@ -309,7 +315,7 @@ async def main():
             logger.error("MQTT connection error (%d/10): %s. Retrying in 5 seconds...", consecutive_mqtt_failures, mqtt_err)
             if consecutive_mqtt_failures >= 10:
                 logger.critical("MQTT broker connection failed %d consecutive times. Exiting to trigger systemd restart.", consecutive_mqtt_failures)
-                sys.exit(1)
+                os._exit(1)
             try:
                 await asyncio.wait_for(shutdown_event.wait(), timeout=5.0)
             except asyncio.TimeoutError:

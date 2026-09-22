@@ -7,7 +7,8 @@ StartLimitIntervalSec=0
 WorkingDirectory=/home/jh/paeraki
 ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/72v/watch.py --broker 192.168.1.1 --interval 2.0
 Restart=always
-RestartSec=15s
+RestartSec=10s
+TimeoutStopSec=10s
 User=jh
 Environment=PYTHONUNBUFFERED=1
 
