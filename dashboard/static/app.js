@@ -312,10 +312,25 @@
         displaySoc = parseFloat(cached72v.soc_integrated) || 0.0;
       }
 
+      const isStale72v = !cached72v.last_updated || (Date.now() - new Date(cached72v.last_updated).getTime() > 15000) || vTotal <= 0;
       if (homeVal72vSoc) homeVal72vSoc.textContent = displaySoc > 0 ? `${displaySoc.toFixed(1)}%` : '--.-%';
-      if (home72vModeBadge) home72vModeBadge.textContent = selectedSocMode.toUpperCase();
-      if (homeVal72vW) homeVal72vW.textContent = Math.abs(pwr) < 10000 ? `${Math.round(pwr)}` : `${(pwr / 1000).toFixed(1)}k`;
-      if (homeVal72vSub) homeVal72vSub.textContent = `${vTotal > 0 ? vTotal.toFixed(1) : '--.-'} V · ${curr >= 0 ? '+' : ''}${curr.toFixed(1)} A`;
+      if (home72vModeBadge) {
+        if (isStale72v) {
+          home72vModeBadge.textContent = 'OFFLINE';
+          home72vModeBadge.className = 'inst-badge red-badge';
+        } else {
+          home72vModeBadge.textContent = selectedSocMode.toUpperCase();
+          home72vModeBadge.className = 'inst-badge cyan-badge';
+        }
+      }
+      if (homeVal72vW) homeVal72vW.textContent = isStale72v ? '--' : (Math.abs(pwr) < 10000 ? `${Math.round(pwr)}` : `${(pwr / 1000).toFixed(1)}k`);
+      if (homeVal72vSub) {
+        if (isStale72v) {
+          homeVal72vSub.textContent = vTotal > 0 ? `${vTotal.toFixed(1)} V · OFFLINE` : 'OFFLINE · NO COMMS';
+        } else {
+          homeVal72vSub.textContent = `${vTotal > 0 ? vTotal.toFixed(1) : '--.-'} V · ${curr >= 0 ? '+' : ''}${curr.toFixed(1)} A`;
+        }
+      }
 
       if (home72vBarFill) {
         const clamped = Math.min(100, Math.max(0, displaySoc));
@@ -425,7 +440,11 @@
 
     // Badge logic
     if (bmsStateBadge) {
-      if (Math.abs(curr) < 0.3) {
+      const isStale = !data.last_updated || (Date.now() - new Date(data.last_updated).getTime() > 15000) || vTotal <= 0;
+      if (isStale) {
+        bmsStateBadge.textContent = 'OFFLINE';
+        bmsStateBadge.className = 'card-badge red-badge';
+      } else if (Math.abs(curr) < 0.3) {
         bmsStateBadge.textContent = 'IDLE';
         bmsStateBadge.className = 'card-badge green-badge';
       } else if (curr > 0.3) {
@@ -598,16 +617,22 @@
     if (val12vSolarA) val12vSolarA.textContent = `${solA.toFixed(1)} A`;
 
     // Status & Yield
-    const rawStatus = data.charging_status || 'Active';
+    const isStale12v = !data.last_updated || (Date.now() - new Date(data.last_updated).getTime() > 15000) || battV <= 0;
+    const rawStatus = isStale12v ? 'Offline' : (data.charging_status || 'Active');
     if (val12vState) val12vState.textContent = rawStatus;
     if (solarModeBadge) {
-      solarModeBadge.textContent = rawStatus.toUpperCase();
-      if (rawStatus.toLowerCase().includes('float')) {
-        solarModeBadge.className = 'card-badge green-badge';
-      } else if (rawStatus.toLowerCase().includes('boost') || rawStatus.toLowerCase().includes('mppt')) {
-        solarModeBadge.className = 'card-badge amber-badge';
+      if (isStale12v) {
+        solarModeBadge.textContent = 'OFFLINE';
+        solarModeBadge.className = 'card-badge red-badge';
       } else {
-        solarModeBadge.className = 'card-badge';
+        solarModeBadge.textContent = rawStatus.toUpperCase();
+        if (rawStatus.toLowerCase().includes('float')) {
+          solarModeBadge.className = 'card-badge green-badge';
+        } else if (rawStatus.toLowerCase().includes('boost') || rawStatus.toLowerCase().includes('mppt')) {
+          solarModeBadge.className = 'card-badge amber-badge';
+        } else {
+          solarModeBadge.className = 'card-badge';
+        }
       }
     }
     if (val12vYield) val12vYield.textContent = data.daily_yield_kwh !== undefined ? `${data.daily_yield_kwh} kWh` : '-- kWh';

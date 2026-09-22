@@ -341,6 +341,19 @@ html, body {
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
 }
 
+.red-badge {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #f87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.4) !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
+}
+
+.gray-badge {
+  background: rgba(100, 116, 139, 0.2) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(100, 116, 139, 0.4) !important;
+}
+
 /* ---------------- Hero Metric Row ---------------- */
 .hero-metric-row {
   display: flex;
@@ -1966,6 +1979,20 @@ body.high-contrast .green-badge {
   background: #dcfce7 !important;
   color: #15803d !important;
   border: 1px solid #86efac !important;
+  box-shadow: none !important;
+}
+
+body.high-contrast .red-badge {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+  border: 1px solid #fca5a5 !important;
+  box-shadow: none !important;
+}
+
+body.high-contrast .gray-badge {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+  border: 1px solid #cbd5e1 !important;
   box-shadow: none !important;
 }
 
