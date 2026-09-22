@@ -5,7 +5,7 @@ Fixes
   - logging charger state???
 - fix BMS login 
 - reduce the load on "look"
-  - move the dashboard server to "sing"
+  - [DONE] move the dashboard server to "sing" (running on port 8080 alongside 3-day buffer logger and auto-sync to hammer)
 
 
 Monitoring
@@ -47,6 +47,7 @@ Monitoring
 - [DONE] alarms (via SMS or email)
   - [DONE] 12V 50% capacity (Implemented in modular alarms/watch.py daemon with SMS via Teltonika router)\
 - local logging on paeraki for when VPN link down
+- does the 72v battery charger actually report temperature? why is no data being captured?
 
 
 Control
