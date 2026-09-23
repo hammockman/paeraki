@@ -241,3 +241,85 @@ async def test_sms_dispatcher():
     )
     assert await disp_dry.dispatch(event, {"active_count": 1}) is True
 
+
+@pytest.mark.anyio
+async def test_sms_dispatcher_execution():
+    from unittest.mock import AsyncMock, patch
+    from alarms.dispatchers import SmsDispatcher
+    from alarms.rules import AlarmEvent
+
+    disp = SmsDispatcher(
+        phone_number="+64274461297",
+        router_ip="192.168.1.1",
+        dry_run=False,
+    )
+    event = AlarmEvent(
+        rule_name="connection_look_lost",
+        severity="CRITICAL",
+        state="ALARM",
+        message="Connection to look lost for 1h",
+        timestamp="2026-09-24T09:00:00Z",
+        epoch_ms=1790200000000,
+    )
+
+    # 1. Success case: returncode 0 and 'SMS sent: 1'
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 0
+    mock_proc.communicate = AsyncMock(return_value=(b"SMS sent: 1\n", b""))
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+        assert await disp.dispatch(event, {"active_count": 1}) is True
+        mock_exec.assert_called_once()
+        args = mock_exec.call_args[0]
+        assert args[0] == "ssh"
+        assert "root@192.168.1.1" in args
+        # Check remote command has gsmctl -S -s
+        remote_cmd = args[-1]
+        assert remote_cmd.startswith("gsmctl -S -s ")
+        assert "+64274461297" in remote_cmd
+
+    # 2. Failure case: modem error / wrong format
+    mock_proc_fail = AsyncMock()
+    mock_proc_fail.returncode = 0
+    mock_proc_fail.communicate = AsyncMock(return_value=(b"Wrong input format\n", b""))
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc_fail):
+        assert await disp.dispatch(event, {"active_count": 1}) is False
+
+
+@pytest.mark.anyio
+async def test_email_dispatcher_smtp_execution():
+    from unittest.mock import MagicMock, patch
+    from alarms.dispatchers import EmailDispatcher
+    from alarms.rules import AlarmEvent
+
+    disp = EmailDispatcher(
+        recipient_email="jjharrington@gmail.com",
+        smtp_host="smtp.gmail.com",
+        smtp_port=587,
+        smtp_user="jjharrington@gmail.com",
+        smtp_password="test_password",
+        sender_email="jjharrington@gmail.com",
+        dry_run=False,
+    )
+    event = AlarmEvent(
+        rule_name="connection_rut955_lost",
+        severity="CRITICAL",
+        state="ALARM",
+        message="Connection to RUT955 lost for 1h",
+        timestamp="2026-09-24T09:00:00Z",
+        epoch_ms=1790200000000,
+    )
+
+    mock_server = MagicMock()
+    mock_smtp_class = MagicMock(return_value=mock_server)
+    mock_server.__enter__.return_value = mock_server
+
+    with patch("smtplib.SMTP", mock_smtp_class):
+        res = await disp.dispatch(event, {"active_count": 1})
+        assert res is True
+        mock_smtp_class.assert_called_once_with("smtp.gmail.com", 587, timeout=10.0)
+        mock_server.starttls.assert_called_once()
+        mock_server.login.assert_called_once_with("jjharrington@gmail.com", "test_password")
+        mock_server.send_message.assert_called_once()
+
+

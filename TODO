@@ -91,4 +91,7 @@ things
 Shopping
 ========
 
-USB-RS485 UART cable requirements?
+- relay board with overload protection, current measurement, physical switch
+  triggering and wifi comms (e.g. Kincony A16S maybe)
+- 12V PoE ethernet switch 
+- case for "look" (Orange Pi R1+ LTS or a replacement)

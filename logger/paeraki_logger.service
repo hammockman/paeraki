@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/home/jh/paeraki
-ExecStart=/usr/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/logger/logger.py --db-path /home/jh/paeraki/data/paeraki.db
+ExecStart=/usr/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/logger/logger.py --db-path /home/jh/paeraki/data/paeraki.db --phone +64274461297 --email jjharrington@gmail.com --alarm-timeout 3600
 Restart=always
 RestartSec=5
 User=jh
