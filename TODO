@@ -46,7 +46,7 @@ Monitoring
     - sensors (ray marine compass, wind, depth)
 - [DONE] alarms (via SMS or email)
   - [DONE] 12V 50% capacity (Implemented in modular alarms/watch.py daemon with SMS via Teltonika router)\
-- local logging on paeraki for when VPN link down
+- [DONE] local logging on paeraki for when VPN link down (Implemented in logger/buffer_logger.py 3-day rolling buffer on sing with automated sync to hammer)
 - does the 72v battery charger actually report temperature? why is no data being captured?
 
 
@@ -63,7 +63,7 @@ things
   - bearing
   - tacking
   - screen brightness
-- music player setup (see TODO.music)
+- [DONE] music player setup (dual-zone Apple DACs, volume sliders & mute toggles on dashboard Home tab, MQTT media bridge daemon, mini-transport bar, safety auto-pause - see TODO.music)
 - 12V load switching (and circuit protection)
   - via wifi device???
     - interior lights

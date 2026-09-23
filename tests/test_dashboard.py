@@ -363,6 +363,158 @@ def test_cortex_control_flow():
 
     asyncio.run(_run_tests())
 
+
+def test_audio_mixer_and_endpoints():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    import dashboard.server as srv
+    from dashboard.audio import get_all_audio_state, set_alsa_volume, set_alsa_mute
+
+    # Test standalone audio module helpers
+    st = get_all_audio_state()
+    assert "inside" in st
+    assert "outside" in st
+
+    res_vol = set_alsa_volume("inside", 77)
+    assert res_vol["volume"] == 77
+
+    res_mute = set_alsa_mute("outside", True)
+    assert res_mute["muted"] is True
+
+    # Test server endpoints
+    app = srv.create_app("", 0)
+    srv.state.broadcast = AsyncMock()
+
+    get_audio_endpoint = None
+    post_vol_endpoint = None
+    post_mute_endpoint = None
+    get_health_endpoint = None
+    post_restart_endpoint = None
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        if path == "/api/audio/state":
+            get_audio_endpoint = route.endpoint
+        elif path == "/api/audio/volume":
+            post_vol_endpoint = route.endpoint
+        elif path == "/api/audio/mute":
+            post_mute_endpoint = route.endpoint
+        elif path == "/api/audio/health":
+            get_health_endpoint = route.endpoint
+        elif path == "/api/audio/restart":
+            post_restart_endpoint = route.endpoint
+
+    assert get_audio_endpoint is not None
+    assert post_vol_endpoint is not None
+    assert post_mute_endpoint is not None
+    assert get_health_endpoint is not None
+    assert post_restart_endpoint is not None
+
+    async def _test():
+        # GET audio state
+        res = await get_audio_endpoint()
+        data = json.loads(res.body.decode())
+        assert "inside" in data
+        assert "outside" in data
+
+        # GET audio health
+        res_h = await get_health_endpoint()
+        assert res_h.status_code == 200
+        data_h = json.loads(res_h.body.decode())
+        assert "status" in data_h
+        assert "devices" in data_h
+        assert "mpd" in data_h
+
+        # POST volume
+        req = MagicMock()
+        req.json = AsyncMock(return_value={"zone": "inside", "volume": 42})
+        res = await post_vol_endpoint(req)
+        assert res.status_code == 200
+        data = json.loads(res.body.decode())
+        assert data["status"] == "ok"
+        assert data["zone"] == "inside"
+        assert data["state"]["volume"] == 42
+        assert srv.state.broadcast.called
+
+        # POST mute
+        req2 = MagicMock()
+        req2.json = AsyncMock(return_value={"zone": "outside", "muted": True})
+        res2 = await post_mute_endpoint(req2)
+        assert res2.status_code == 200
+        data2 = json.loads(res2.body.decode())
+        assert data2["status"] == "ok"
+        assert data2["zone"] == "outside"
+        assert data2["state"]["muted"] is True
+
+        # POST restart
+        req3 = MagicMock()
+        req3.json = AsyncMock(return_value={"restore_playback": True})
+        res3 = await post_restart_endpoint(req3)
+        assert res3.status_code == 200
+        data3 = json.loads(res3.body.decode())
+        assert data3["status"] == "ok"
+        assert "health" in data3
+        assert "audio" in data3
+
+    asyncio.run(_test())
+
+
+def test_media_state_ingestion_and_control_endpoint():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    import dashboard.server as srv
+
+    state = srv.DashboardState()
+
+    # 1. Ingest media packet
+    media_data = {
+        "state": "play",
+        "source": "mpd",
+        "title": "Telegraph Road",
+        "artist": "Dire Straits",
+        "album": "Love over Gold",
+        "elapsed": 124.0,
+        "duration": 859.0,
+        "outputs": {
+            "inside": True,
+            "outside": True,
+            "both": True,
+        }
+    }
+    state.record_packet("paeraki/media/state", json.dumps(media_data))
+    assert state.media["state"] == "play"
+    assert state.media["title"] == "Telegraph Road"
+    assert state.media["artist"] == "Dire Straits"
+    assert state.media["outputs"]["inside"] is True
+
+    # 2. Check snapshot
+    snap = state.get_snapshot()
+    assert "media" in snap
+    assert snap["media"]["title"] == "Telegraph Road"
+
+    # 3. Test API endpoint
+    app = srv.create_app("", 0)
+    srv.state.publish = AsyncMock()
+
+    control_endpoint = None
+    for route in app.routes:
+        if getattr(route, "path", None) == "/api/media/control":
+            control_endpoint = route.endpoint
+
+    assert control_endpoint is not None
+
+    async def _test():
+        req = MagicMock()
+        req.json = AsyncMock(return_value={"command": "play_pause"})
+        res = await control_endpoint(req)
+        assert res.status_code == 200
+        data = json.loads(res.body.decode())
+        assert data["status"] == "ok"
+        assert data["command"] == "play_pause"
+        assert srv.state.publish.called
+
+    asyncio.run(_test())
+
+
 def test_barometer_stale_handling():
     import dashboard.server as srv
     state = srv.DashboardState()
@@ -386,4 +538,3 @@ def test_barometer_stale_handling():
     assert state.seatalkng_environment["pressure_hpa"] == 1013.2
     assert state.seatalkng_environment["is_stale"] is True
     assert state.seatalkng_environment["trend"] == "STale"
-

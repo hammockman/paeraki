@@ -15,7 +15,9 @@ from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 import socket
+import subprocess
 import sys
 from typing import Any
 
@@ -24,6 +26,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 from battery import BatteryIntegrator, calculate_voltage_soc
 from battery_12v import HouseBatteryIntegrator, calculate_agm_voltage_soc
 from auth import auth_manager, get_current_device_auth, require_control_auth
+from audio import (
+    get_all_audio_state,
+    set_alsa_volume,
+    set_alsa_mute,
+    check_audio_health,
+    restart_audio_system,
+)
 
 import uvicorn
 from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -339,6 +348,23 @@ class DashboardState:
             "note": None,
         }
 
+        self.media: dict[str, Any] = {
+            "state": "stop",
+            "source": "mpd",
+            "title": "",
+            "artist": "",
+            "album": "",
+            "elapsed": 0.0,
+            "duration": 0.0,
+            "volume": 0,
+            "outputs": {
+                "inside": True,
+                "outside": True,
+                "both": True,
+            },
+            "updated_at": None,
+        }
+
         self.raw_topics: dict[str, Any] = {}
         self.recent_packets = deque(maxlen=150)
         self.ws_clients: set[WebSocket] = set()
@@ -351,12 +377,18 @@ class DashboardState:
 
     async def publish(self, topic: str, payload: Any, retain: bool = False) -> bool:
         """Publishes a payload to MQTT via the active client connection."""
-        if not self.mqtt_client:
+        if not self.mqtt_client or not self.is_connected:
             logger.warning("Cannot publish to %s: MQTT client not connected", topic)
             return False
         payload_str = json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
-        await self.mqtt_client.publish(topic, payload_str, retain=retain)
-        return True
+        try:
+            await self.mqtt_client.publish(topic, payload_str, retain=retain)
+            return True
+        except Exception as exc:
+            logger.warning("Failed publishing to %s: %s", topic, exc)
+            self.is_connected = False
+            self.mqtt_client = None
+            return False
 
     def record_packet(self, topic: str, payload_str: str, source: str = "mqtt"):
         now = datetime.now(timezone.utc)
@@ -708,15 +740,29 @@ class DashboardState:
             self.cortex_anchor.update(parsed_json)
             self.cortex_anchor["last_updated"] = iso_now
 
-        elif topic == "paeraki/cortex/alarms" and isinstance(parsed_json, list):
-            self.cortex_alarms = parsed_json
-
         elif topic == "paeraki/cortex/telemetry" and isinstance(parsed_json, dict):
             self.cortex_telemetry.update(parsed_json)
             self.cortex_telemetry["last_seen"] = iso_now
 
         elif topic in ("paeraki/cortex/mob/alert", "paeraki/seatalkng/mob") and isinstance(parsed_json, dict):
             self.mob_alert.update(parsed_json)
+
+        elif topic == "paeraki/media/state" and isinstance(parsed_json, dict):
+            self.media.update(parsed_json)
+
+        elif topic == "paeraki/cortex/alarms" and isinstance(parsed_json, list):
+            self.cortex_alarms = parsed_json
+            # Auto-pause media if critical active un-silenced alarm exists
+            has_critical = any(
+                not a.get("silenced") and a.get("type") in ("CollisionRisk", "AnchorDrag", "CriticalAlert")
+                for a in parsed_json if isinstance(a, dict)
+            )
+            if has_critical:
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self.publish("paeraki/media/command", {"command": "pause"}))
+                except RuntimeError:
+                    pass
 
         else:
             self.raw_topics[topic] = {
@@ -835,8 +881,14 @@ class DashboardState:
                     "telemetry": self.cortex_telemetry,
                 },
                 "mob": self.mob_alert,
+                "audio": get_all_audio_state(),
+                "audio_health": check_audio_health(),
+                "media": self.media,
                 "raw_topics": self.raw_topics,
             },
+            "audio": get_all_audio_state(),
+            "audio_health": check_audio_health(),
+            "media": self.media,
             "alarms": self.alarms,
             "recent_packets": list(self.recent_packets)[:50],
         }
@@ -893,9 +945,13 @@ async def mqtt_worker(broker: str, port: int, retry_delay: float = 3.0):
 
         except Exception as err:
             state.is_connected = False
+            state.mqtt_client = None
             logger.warning("MQTT connection lost (%s). Retrying in %ss...", err, retry_delay)
             await state.broadcast({"type": "connection_status", "connected": False, "error": str(err)})
             await asyncio.sleep(retry_delay)
+        finally:
+            state.is_connected = False
+            state.mqtt_client = None
 
 
 async def mock_worker(interval: float = 2.0):
@@ -1290,6 +1346,13 @@ def create_app(broker: str, port: int, enable_mock: bool = False) -> FastAPI:
         state.mob_alert = mob_data
         await state.publish("paeraki/cortex/command", {"command": "mob", "data": mob_data}, retain=True)
         await state.publish("paeraki/cortex/mob/alert", mob_data, retain=True)
+        # Auto-pause media and mute cockpit for safety during MoB
+        await state.publish("paeraki/media/command", {"command": "pause"})
+        try:
+            from audio import set_alsa_mute
+            set_alsa_mute("outside", True)
+        except Exception:
+            pass
         await state.broadcast({"type": "snapshot", "snapshot": state.get_snapshot()})
         return JSONResponse({"status": "ok", "message": "Man Overboard alert activated!", "mob": mob_data})
 
@@ -1342,6 +1405,122 @@ def create_app(broker: str, port: int, enable_mock: bool = False) -> FastAPI:
         state.system_72v.update(soc_info)
         await state.broadcast({"type": "snapshot", "snapshot": state.get_snapshot()})
         return JSONResponse({"status": "ok", "system_72v": state.system_72v})
+
+    # --- Audio Zone Control Routes ---
+
+    @app.get("/api/audio/state")
+    async def audio_state_endpoint():
+        return JSONResponse(get_all_audio_state())
+
+    @app.post("/api/audio/volume")
+    async def audio_volume_endpoint(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        zone = body.get("zone", "")
+        volume = body.get("volume", 0)
+        if zone not in ("inside", "outside"):
+            return JSONResponse({"error": "Invalid zone. Must be 'inside' or 'outside'"}, status_code=400)
+        try:
+            res = set_alsa_volume(zone, int(volume))
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+        all_audio = get_all_audio_state()
+        await state.broadcast({"type": "audio_state", "audio": all_audio})
+        return JSONResponse({"status": "ok", "zone": zone, "state": res, "audio": all_audio})
+
+    @app.post("/api/audio/mute")
+    async def audio_mute_endpoint(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        zone = body.get("zone", "")
+        muted = body.get("muted", False)
+        if zone not in ("inside", "outside"):
+            return JSONResponse({"error": "Invalid zone. Must be 'inside' or 'outside'"}, status_code=400)
+        try:
+            res = set_alsa_mute(zone, bool(muted))
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+        all_audio = get_all_audio_state()
+        await state.broadcast({"type": "audio_state", "audio": all_audio})
+        return JSONResponse({"status": "ok", "zone": zone, "state": res, "audio": all_audio})
+
+    @app.get("/api/audio/health")
+    async def audio_health_endpoint():
+        return JSONResponse(check_audio_health())
+
+    @app.post("/api/audio/restart")
+    async def audio_restart_endpoint(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        restore_playback = bool(body.get("restore_playback", True))
+        try:
+            health = restart_audio_system(restore_playback=restore_playback)
+        except Exception as exc:
+            logger.error("Audio system restart failed: %s", exc)
+            return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
+
+        all_audio = get_all_audio_state()
+        await state.broadcast({
+            "type": "audio_state",
+            "audio": all_audio,
+            "audio_health": health,
+        })
+        return JSONResponse({"status": "ok", "health": health, "audio": all_audio})
+
+    @app.post("/api/media/control")
+    async def media_control(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        cmd = body.get("command")
+        if not cmd:
+            return JSONResponse({"error": "command required"}, status_code=400)
+
+        # Dispatch command via MQTT
+        published = bool(await state.publish("paeraki/media/command", body))
+
+        # Fallback to local mpc if MQTT publish failed and mpc is available locally
+        if not published:
+            logger.info("MQTT publish failed; executing local mpc fallback for '%s'", cmd)
+            mpc_bin = shutil.which("mpc")
+            if mpc_bin:
+                try:
+                    if cmd == "play":
+                        subprocess.run([mpc_bin, "play"], check=False, timeout=1.0)
+                    elif cmd == "pause":
+                        r = subprocess.run([mpc_bin, "status"], capture_output=True, text=True, timeout=1.0)
+                        if "http://" in r.stdout or "https://" in r.stdout:
+                            subprocess.run([mpc_bin, "stop"], check=False, timeout=1.0)
+                        else:
+                            subprocess.run([mpc_bin, "pause"], check=False, timeout=1.0)
+                    elif cmd in ("play_pause", "toggle"):
+                        r = subprocess.run([mpc_bin, "status"], capture_output=True, text=True, timeout=1.0)
+                        if "[playing]" in r.stdout:
+                            if "http://" in r.stdout or "https://" in r.stdout:
+                                subprocess.run([mpc_bin, "stop"], check=False, timeout=1.0)
+                            else:
+                                subprocess.run([mpc_bin, "pause"], check=False, timeout=1.0)
+                        else:
+                            subprocess.run([mpc_bin, "play"], check=False, timeout=1.0)
+                    elif cmd == "next":
+                        subprocess.run([mpc_bin, "next"], check=False, timeout=1.0)
+                    elif cmd == "prev":
+                        subprocess.run([mpc_bin, "prev"], check=False, timeout=1.0)
+                    elif cmd == "stop":
+                        subprocess.run([mpc_bin, "stop"], check=False, timeout=1.0)
+                except Exception as exc:
+                    logger.warning("Local mpc fallback failed: %s", exc)
+
+        return JSONResponse({"status": "ok", "command": cmd, "dispatched": body, "via_mqtt": published})
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):

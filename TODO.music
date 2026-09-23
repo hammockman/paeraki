@@ -1,127 +1,143 @@
-# Paeraki Vessel Audio System Implementation Plan (Option A)
+# Paeraki Vessel Audio System Implementation (Dual Apple USB DACs)
 
-This plan outlines the implementation of an isolated, dual-zone marine music streaming system on **`sing`** (Raspberry Pi 4). It provides **independent remote volume and mute control** for the interior cabin and exterior cockpit without touching the Fusion head unit, while keeping the Pi's Bluetooth radio 100% free and uncontended for the **12V Renogy** and **72V JBD BMS** battery safety telemetry.
+The dual-zone marine music streaming system is deployed on **`sing`** (Raspberry Pi 4B running moOde OS). It provides **independent remote volume and mute control** for the interior cabin and exterior cockpit without touching the Fusion head unit. (Note: all 12V Renogy and 72V JBD BMS battery safety telemetry is handled separately on **`look`**).
 
 ---
 
 ## 1. System Architecture
 
 ```
-                                  [ sing (Raspberry Pi 4) ]
-                                            │
-               ┌────────────────────────────┴────────────────────────────┐
-               ▼                                                         ▼
-       [ Card 0: I2S Audio HAT ]                                 [ Card 1: USB DAC ]
-       (40-pin GPIO / Hardware I2S)                              (USB 2.0 Port)
-               │                                                         │
-               │ (3.5mm or RCA Line Out)                                 │ (3.5mm to RCA Cable)
-               ▼                                                         ▼
-    [ Fusion MS-RA55 (AUX In) ]                               [ Sony XM-N502 Amplifier ]
-    (Set to AUX Mode, Fixed Volume)                           (Line Input / Gain at ~60%)
-               │                                                         │
-               ▼                                                         ▼
-    [ 2x Interior Cabin Speakers ]                            [ 1x Exterior Cockpit Speaker ]
-    (Stereo Zone 1)                                           (High-Power Bridged Mono Zone 2)
+                                  [ sing (Raspberry Pi 4B) ]
+                                             │
+                ┌────────────────────────────┴────────────────────────────┐
+                ▼                                                         ▼
+     [ Top USB 2.0 Port 1-1.3 ]                                [ Bottom USB 3.0 Port 1-1.2 ]
+   (Apple USB-C DAC: inside)                                (Apple USB-C DAC: outside)
+   (Serial: DWH62470BL02FTRAM)                               (Serial: DWH62520AU52FTRAV)
+                │                                                         │
+                │ (3.5mm to Dual RCA Cable)                               │ (3.5mm to Dual RCA Cable)
+                ▼                                                         ▼
+     [ Fusion MS-RA55 (AUX In) ]                               [ Sony XM-N502 Amplifier ]
+     (Set to AUX Mode, Fixed Baseline Vol)                     (Line Input / Bridged Mono Mode)
+                │                                                         │
+                ▼                                                         ▼
+     [ 2x Cabin Interior Speakers ]                            [ 1x Cockpit Centerline Speaker ]
+     (Zone 1: Cabin Stereo 'inside')                           (Zone 2: Bridged Mono 'outside')
 ```
 
-### Why this design?
-1. **100% Independent Remote Control**: The Pi sees two completely distinct soundcards (`Cabin` and `Cockpit`). You can set the cockpit to quiet background music while cranking the cabin, or instantly mute the exterior when entering a marina—all from your phone.
-2. **Zero Bluetooth Contention**: Both audio paths are hardwired (I2S bus + USB bus). The Pi 4's onboard Cypress Bluetooth chip remains entirely dedicated to polling the 12V and 72V batteries at 1–2 Hz without audio stuttering or packet drops.
-3. **No Head Unit Knob Twiddling**: The Fusion MS-RA55 stays tucked away in the cabin on the AUX input at a fixed baseline volume; all day-to-day zone balancing and track selection happen over Wi-Fi.
+---
+
+## 2. Deployed Configurations & Hardware Verification
+
+### A. Udev Persistent Device Naming (`/etc/udev/rules.d/85-paeraki-audio.rules`)
+Ensures ALSA card IDs never swap across reboots or port re-enumerations by matching hardware serial numbers:
+```udev
+SUBSYSTEM=="sound", KERNEL=="card*", ATTRS{serial}=="DWH62470BL02FTRAM", ATTR{id}="inside"
+SUBSYSTEM=="sound", KERNEL=="card*", ATTRS{serial}=="DWH62520AU52FTRAV", ATTR{id}="outside"
+```
+* **Top USB 2.0 Port** (`1-1.3`, Serial `DWH62470BL02FTRAM`) $\rightarrow$ **`hw:inside`**
+* **Bottom USB 3.0 Port** (`1-1.2`, Serial `DWH62520AU52FTRAV`) $\rightarrow$ **`hw:outside`** (separated onto USB 3.0 stack to prevent USB 1.1 Full Speed isochronous bandwidth / TT micro-frame collision)
+
+### B. ALSA Configuration (`/etc/asound.conf`)
+* **`pcm.inside`**: Direct hardware plug to Fusion AUX (`hw:inside,0`).
+* **`pcm.outside`**: Direct hardware plug to Sony XM-N502 (`hw:outside,0`). Clean, bit-perfect direct stereo; mono downmixing is handled at the Sony XM-N502 amplifier stage, eliminating software buffer tearing and DSP phase distortion.
+* Both cards support direct hardware analog volume control (`Headphone`, 0–120) and hardware mute toggles (`amixer -c <zone> sset Headphone mute/unmute`).
+
+### C. MPD & moOde Audio Integration
+Configured in `/etc/mpd.conf` and `/etc/mpd.custom.conf`:
+* **Output 4**: `Inside (Cabin Stereo)` (`close_on_pause "yes"`, `format "48000:16:2"`)
+* **Output 5**: `Outside (Cockpit Mono)` (`close_on_pause "yes"`, `format "48000:16:2"`)
+* **Output 6**: `Whole Boat (Cabin + Cockpit)`
+* **Note on `close_on_pause "yes"`**: USB Audio DACs do not support ALSA hardware pause (`snd_pcm_pause`). Without `close_on_pause "yes"`, pausing and unpausing causes the Pi 4's xHCI USB controller to disable the isochronous endpoint (`ERROR Transfer event for disabled endpoint`), producing a quick burst of stale buffer noise followed by silence. `close_on_pause "yes"` cleanly closes the ALSA PCM device on pause and re-opens a fresh zeroed stream on play.
+
+### D. Useful Terminal Commands on `sing`
+```bash
+# Volume control
+amixer -c inside sset Headphone 75%
+amixer -c outside sset Headphone 60%
+
+# Quick Mute Cockpit (e.g. entering a marina)
+amixer -c outside sset Headphone mute
+amixer -c outside sset Headphone unmute
+
+# Toggle MPD outputs
+mpc enable "Inside (Cabin Stereo)"
+mpc disable "Outside (Cockpit Mono)"
+```
 
 ---
 
-## 2. Hardware Shopping & Sourcing List (For User)
+## 3. Web Dashboard Audio Integration (Deployed on `sing:8080`)
 
-### Item 1: Raspberry Pi I2S Audio HAT (Already Sourced)
-* **Status**: Ordered from AliExpress on 4 Sep 2025 (Order `8204684702891831`), delivered 10 Sep 2025 to 15 Walkers Road.
-* **Action**: Locate the board at home/spares box. 
-* **Details**: Standard 40-pin I2S DAC (PCM5102A / PCM5122) with 2x RCA and 1x 3.5mm outputs.
-* **Accessories needed**: 4x M2.5 nylon or brass standoffs and screws (11mm height) to secure the HAT to the Pi 4.
+The Paeraki Web Dashboard Home tab features horizontal volume sliders and dedicated mute toggles directly above the 72V propulsion battery indicator:
 
-### Item 2: USB Audio DAC Dongle (Need to Purchase / Source)
-* **Budget**: ~$15 – $25 NZD.
-* **Recommended Options**:
-  * **Option 2A (Best compact / audiophile)**: **Apple USB-C to 3.5mm Headphone Jack Adapter** (Model A2049, ~$19 NZD at Noel Leeming, PB Tech, or Apple Store) + a small **USB-A Male to USB-C Female adapter** (~$5 NZD). *Has a high-performance Cirrus Logic DAC with a near-zero noise floor.*
-  * **Option 2B (Plug-and-play USB-A)**: **Ugreen or Vention USB External Stereo Sound Card** (~$18–$24 NZD at PB Tech or Amazon). Standard USB-A plug with 3.5mm stereo output.
-
-### Item 3: Audio Interconnect Cables
-* **Cable A (Cabin / Interior)**: 
-  * 1x **3.5mm Stereo to Dual RCA (Male-to-Male)** or **Dual RCA to Dual RCA** cable (depending on HAT output jacks).
-  * Length: 1.0 m – 1.5 m (from `sing` to rear AUX RCA on Fusion MS-RA55).
-* **Cable B (Cockpit / Exterior)**:
-  * 1x **3.5mm Stereo to Dual RCA (Male-to-Male)** cable (from USB DAC on `sing` to Sony XM-N502 RCA inputs).
-  * Length: Measured to reach from `sing` mounting point to the Sony amplifier location.
-
-### Item 4: Amplifier Remote Turn-On Check
-* The Sony XM-N502 amplifier requires a +12V trigger on its `REM` terminal to power on.
-* **Verify**: Confirm that the Sony amp `REM` line is already wired to the Fusion MS-RA55 blue wire (Amplifier Remote On) or to an accessory toggle on the yacht DC switchboard.
+* **Inside (Cabin)**: Adjusts ALSA hardware mixer `amixer -c inside sset Headphone <vol>%`.
+* **Outside (Cockpit)**: Adjusts ALSA hardware mixer `amixer -c outside sset Headphone <vol>%`.
+* **Mute Toggles**: Located on the right-hand side of each slider (`🔊` / `🔇`), turns hardware output on/off (`amixer -c <zone> sset Headphone mute/unmute`).
+* **Real-Time Sync**: REST endpoints (`/api/audio/state`, `/api/audio/volume`, `/api/audio/mute`) and WebSockets broadcast updates instantly to all connected mobile, tablet, and desktop dashboards.
 
 ---
 
-## 3. Physical Installation Action List (For User)
+## 4. Media Player Architecture & Client Recommendations
 
-1. [ ] **Locate the Audio HAT**: Retrieve the AliExpress audio HAT board and mounting hardware.
-2. [ ] **Purchase USB DAC & Cables**: Procure the USB DAC dongle and the two 3.5mm-to-RCA interconnect cables.
-3. [ ] **Install HAT on `sing`**:
-   - Power down `sing` (`sudo poweroff` via SSH).
-   - Carefully align and seat the 40-pin header onto the Pi 4 GPIO pins.
-   - Secure with M2.5 standoffs.
-4. [ ] **Connect USB DAC**:
-   - Plug the USB DAC into one of `sing`'s black **USB 2.0** ports (keeps the high-speed blue USB 3.0 ports free).
-5. [ ] **Wire Audio Connections**:
-   - Connect Cable A from the HAT output to the **Fusion MS-RA55 AUX IN** (White/Red RCA jacks on rear harness).
-   - Connect Cable B from the USB DAC to the **Sony XM-N502 Audio Inputs** (CH1/CH2 RCA jacks).
-6. [ ] **Power Up & Baseline Gains**:
-   - Power on `sing`.
-   - Turn on Fusion MS-RA55, switch source to **AUX**, and set Zone 1 volume to ~70% (unity gain baseline).
-   - Set Sony XM-N502 input gain dial to ~50–60% to prevent amplifier clipping.
+### Recommended Setup: The Hybrid Model
+* **Engine / Backend**: MPD + moOde OS audio stack running on `sing`.
+* **Mobile / Remote Library Browsing**:
+  * **Android Client**: **M.A.L.P.** (free, open source on F-Droid / Google Play) connects directly to `sing:6600` for zero-lag browsing of playlists, folders, USB drives, and internet radio stations.
+  * **Spotify Connect**: Stream directly from Spotify on any phone/tablet/laptop to moOde's Spotify Connect renderer.
+  * **AirPlay**: Stream from Apple devices directly to moOde Shairport Sync.
+* **Dashboard Mini Transport Bar**:
+  * Displays Title, Artist / Stream name, Source badge (`RADIO`, `SPOTIFY`, `AIRPLAY`, `MPD`).
+  * Quick-access transport controls (`⏮`, `▶` / `⏸`, `⏭`) directly on the Home tab above the Inside / Outside volume sliders.
+  * No album art is published or rendered (low bandwidth, low latency, clean cockpit UI).
 
 ---
 
-## 4. Software Implementation Plan (Automated on `sing`)
+## 5. Media Bridge Service (`paeraki_media_bridge.service`)
 
-Once the hardware is seated, the following software changes will be deployed:
-
-### Task 4.1: Kernel Device Tree Overlays (`/boot/firmware/config.txt`)
-* Enable the hardware I2S soundcard overlay on `sing`:
-  ```ini
-  dtparam=i2s=on
-  dtoverlay=hifiberry-dacplus  # (or hifiberry-dac depending on the specific chip)
-  ```
-* Verify both cards register in ALSA via `aplay -l`:
-  * Card 0/1: `snd_rpi_hifiberry_dac`
-  * Card 1/2: `USB-Audio`
-
-### Task 4.2: ALSA Dual-Zone Mixer Configuration (`/etc/asound.conf`)
-* Create clean, named virtual PCM devices with software volume scaling:
-  * **`pcm.cabin`**: Maps to I2S HAT with dedicated ALSA mixer control `Cabin Volume`.
-  * **`pcm.cockpit`**: Maps to USB DAC with dedicated ALSA mixer control `Cockpit Volume`.
-  * **`pcm.both`**: Uses ALSA `route` / `multi` plugin to broadcast audio to both zones simultaneously with independent attenuation.
-
-### Task 4.3: Streaming Endpoints (Spotify Connect & moOde)
-* **Spotify Connect (`librespot`)**:
-  * Set up two lightweight systemd services:
-    * `librespot-cabin.service` $\rightarrow$ Advertises as **"Paeraki Cabin"** on Spotify.
-    * `librespot-cockpit.service` $\rightarrow$ Advertises as **"Paeraki Cockpit"** on Spotify.
-    * (Optional) `librespot-all.service` $\rightarrow$ Advertises as **"Paeraki Whole Boat"** (plays to both zones in sync).
-* **AirPlay / Local Music (moOde Audio)**:
-  * Bind moOde's MPD and Shairport-Sync to the desired zone or unified loopback.
-
-### Task 4.4: Paeraki Dashboard Integration (`http://192.168.1.101:8080`)
-* Add an **Audio & Zones** card to the Paeraki Web Dashboard:
-  * **Cabin Volume Slider** (0 – 100%) & Mute toggle.
-  * **Cockpit Volume Slider** (0 – 100%) & Mute toggle.
-  * **Quick Mute Cockpit Button**: One-tap harbor/marina silence button.
-  * **Now Playing Widget**: Track title, artist, album art, and play/pause controls fetched via Spotify/MPD API.
-* Expose backend REST endpoints in `dashboard/server.py`:
-  * `GET /api/audio/status`
-  * `POST /api/audio/volume` `{"zone": "cabin|cockpit", "volume": 65}`
-  * `POST /api/audio/mute` `{"zone": "cockpit", "muted": true}`
+Deployed as a systemd background daemon on `sing`:
+* **Source Code**: [`logger/media_bridge.py`](file:///home/jh/paeraki/logger/media_bridge.py)
+* **Systemd Unit**: `/etc/systemd/system/paeraki_media_bridge.service`
+* **MQTT Topics**:
+  * `paeraki/media/state` (Retained): Consolidated playback status JSON published on state change and 5s heartbeat during playback.
+    ```json
+    {
+      "state": "play",
+      "source": "radio",
+      "title": "Tycho - Outer Sunset",
+      "artist": "",
+      "album": "",
+      "elapsed": 250.6,
+      "duration": 0.0,
+      "volume": 64,
+      "outputs": {
+        "inside": true,
+        "outside": true,
+        "both": true
+      },
+      "updated_at": "2026-09-22T00:21:19.899080+00:00"
+    }
+    ```
+  * `paeraki/media/command`: Receives commands: `{"command": "play"|"pause"|"play_pause"|"stop"|"next"|"prev"}`.
+* **Safety Integration**:
+  * In `dashboard/server.py`, if an active, un-silenced Cortex collision alarm (`CollisionRisk`), anchor drag (`AnchorDrag`), or critical alert is detected, the dashboard automatically dispatches `{"command": "pause"}` to `paeraki/media/command` to ensure cockpit audio doesn't mask marine alarms.
 
 ---
 
-## 5. Next Steps Checklist
-- [ ] User checks home / workshop for the AliExpress HAT board.
-- [ ] User orders or picks up USB DAC and two 3.5mm-to-RCA cables.
-- [ ] Notify agent once hardware is plugged in at the boat to execute software Tasks 4.1 – 4.4.
+## 6. Hardware Health Monitoring & Dashboard Auto-Restart
+
+To guard against transient USB disconnects (e.g. cable wiggles or connector insertion):
+* **Health Check API (`GET /api/audio/health`)**:
+  * Verifies ALSA cards `inside` and `outside` are present in `/proc/asound/cards`.
+  * Verifies hardware mixer controls (`Headphone`) are accessible and unmuted.
+  * Verifies MPD daemon status and output enablement.
+* **Restart Engine (`POST /api/audio/restart` / MQTT `restart_audio`)**:
+  * Captures playback state.
+  * Restarts MPD via `sudo -n systemctl restart mpd`.
+  * Re-applies calibrated ALSA hardware volume levels to both zones (preventing default -20dB drop).
+  * Re-enables MPD zone outputs.
+  * Resumes playback automatically.
+* **Dashboard Controls**:
+  * Status Badge (`● READY` / `⚠ DEGRADED` / `● RESTARTING`).
+  * Restart button (`🔄`) in the media player transport bar with rotation animation.
+

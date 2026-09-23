@@ -54,6 +54,32 @@
   const homeVal12vCap = document.getElementById('home-val-12v-cap');
   const homeVal12vSub = document.getElementById('home-val-12v-sub');
 
+  // Home Audio Zone DOM Elements
+  const homeAudioCard = document.getElementById('home-audio-card');
+  const audioSliderInside = document.getElementById('audio-slider-inside');
+  const audioPctInside = document.getElementById('audio-pct-inside');
+  const btnMuteInside = document.getElementById('btn-mute-inside');
+  const audioMuteIconInside = document.getElementById('audio-mute-icon-inside');
+  const homeZoneInside = document.getElementById('home-audio-zone-inside');
+
+  const audioSliderOutside = document.getElementById('audio-slider-outside');
+  const audioPctOutside = document.getElementById('audio-pct-outside');
+  const btnMuteOutside = document.getElementById('btn-mute-outside');
+  const audioMuteIconOutside = document.getElementById('audio-mute-icon-outside');
+  const homeZoneOutside = document.getElementById('home-audio-zone-outside');
+
+  // Media Player DOM Elements
+  const mediaSourceBadge = document.getElementById('media-source-badge');
+  const mediaTitle = document.getElementById('media-title');
+  const mediaArtist = document.getElementById('media-artist');
+  const btnMediaPrev = document.getElementById('btn-media-prev');
+  const btnMediaPlay = document.getElementById('btn-media-play');
+  const mediaPlayIcon = document.getElementById('media-play-icon');
+  const btnMediaNext = document.getElementById('btn-media-next');
+  const btnAudioRestart = document.getElementById('btn-audio-restart');
+  const audioRestartIcon = document.getElementById('audio-restart-icon');
+  const audioHealthBadge = document.getElementById('audio-health-badge');
+
   // 72V DOM Elements
   const val72vSoc = document.getElementById('val-72v-soc');
   const val72vSocMode = document.getElementById('val-72v-soc-mode');
@@ -420,6 +446,321 @@
       }
     }
   }
+
+
+  // ---------------- Audio Zone Subsystem (Inside & Outside) ----------------
+  let isDraggingAudioInside = false;
+  let isDraggingAudioOutside = false;
+  let debounceTimerAudioInside = null;
+  let debounceTimerAudioOutside = null;
+  const currentAudioState = {
+    inside: { volume: 30, muted: false },
+    outside: { volume: 30, muted: false }
+  };
+
+  function updateAudioUI(audioData) {
+    if (!audioData) return;
+
+    if (audioData.inside) {
+      const ins = audioData.inside;
+      currentAudioState.inside = { ...currentAudioState.inside, ...ins };
+      if (!isDraggingAudioInside && audioSliderInside && ins.volume !== undefined) {
+        audioSliderInside.value = ins.volume;
+      }
+      if (audioPctInside && ins.volume !== undefined) {
+        audioPctInside.textContent = `${ins.volume}%`;
+      }
+      if (btnMuteInside && ins.muted !== undefined) {
+        btnMuteInside.classList.toggle('muted', !!ins.muted);
+        btnMuteInside.setAttribute('aria-pressed', !!ins.muted);
+        btnMuteInside.title = ins.muted ? 'Unmute Inside' : 'Mute Inside';
+      }
+      if (audioMuteIconInside && ins.muted !== undefined) {
+        audioMuteIconInside.textContent = ins.muted ? '🔇' : '🔊';
+      }
+      if (homeZoneInside && ins.muted !== undefined) {
+        homeZoneInside.classList.toggle('is-muted', !!ins.muted);
+      }
+    }
+
+    if (audioData.outside) {
+      const out = audioData.outside;
+      currentAudioState.outside = { ...currentAudioState.outside, ...out };
+      if (!isDraggingAudioOutside && audioSliderOutside && out.volume !== undefined) {
+        audioSliderOutside.value = out.volume;
+      }
+      if (audioPctOutside && out.volume !== undefined) {
+        audioPctOutside.textContent = `${out.volume}%`;
+      }
+      if (btnMuteOutside && out.muted !== undefined) {
+        btnMuteOutside.classList.toggle('muted', !!out.muted);
+        btnMuteOutside.setAttribute('aria-pressed', !!out.muted);
+        btnMuteOutside.title = out.muted ? 'Unmute Outside' : 'Mute Outside';
+      }
+      if (audioMuteIconOutside && out.muted !== undefined) {
+        audioMuteIconOutside.textContent = out.muted ? '🔇' : '🔊';
+      }
+      if (homeZoneOutside && out.muted !== undefined) {
+        homeZoneOutside.classList.toggle('is-muted', !!out.muted);
+      }
+    }
+  }
+
+  function sendAudioVolume(zone, volume) {
+    const volInt = Math.max(0, Math.min(100, parseInt(volume, 10) || 0));
+    fetch(getApiUrl('/api/audio/volume'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zone, volume: volInt })
+    })
+    .then(r => r.json())
+    .then(res => {
+      if (res && res.audio) {
+        updateAudioUI(res.audio);
+      }
+    })
+    .catch(err => console.warn(`[Audio] Failed setting volume for ${zone}:`, err));
+  }
+
+  function toggleAudioMute(zone) {
+    const isCurrentlyMuted = currentAudioState[zone] ? !!currentAudioState[zone].muted : false;
+    const newMuted = !isCurrentlyMuted;
+
+    // Optimistic local state update
+    if (currentAudioState[zone]) currentAudioState[zone].muted = newMuted;
+    updateAudioUI(currentAudioState);
+
+    fetch(getApiUrl('/api/audio/mute'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zone, muted: newMuted })
+    })
+    .then(r => r.json())
+    .then(res => {
+      if (res && res.audio) {
+        updateAudioUI(res.audio);
+      }
+    })
+    .catch(err => console.warn(`[Audio] Failed setting mute for ${zone}:`, err));
+  }
+
+  function initAudioControls() {
+    if (audioSliderInside) {
+      audioSliderInside.addEventListener('input', () => {
+        isDraggingAudioInside = true;
+        if (audioPctInside) audioPctInside.textContent = `${audioSliderInside.value}%`;
+        if (debounceTimerAudioInside) clearTimeout(debounceTimerAudioInside);
+        debounceTimerAudioInside = setTimeout(() => {
+          sendAudioVolume('inside', audioSliderInside.value);
+        }, 100);
+      });
+      audioSliderInside.addEventListener('change', () => {
+        isDraggingAudioInside = false;
+        sendAudioVolume('inside', audioSliderInside.value);
+      });
+      audioSliderInside.addEventListener('pointerup', () => { isDraggingAudioInside = false; });
+      audioSliderInside.addEventListener('touchend', () => { isDraggingAudioInside = false; });
+    }
+
+    if (btnMuteInside) {
+      btnMuteInside.addEventListener('click', (e) => {
+        e.preventDefault();
+        toggleAudioMute('inside');
+      });
+    }
+
+    if (audioSliderOutside) {
+      audioSliderOutside.addEventListener('input', () => {
+        isDraggingAudioOutside = true;
+        if (audioPctOutside) audioPctOutside.textContent = `${audioSliderOutside.value}%`;
+        if (debounceTimerAudioOutside) clearTimeout(debounceTimerAudioOutside);
+        debounceTimerAudioOutside = setTimeout(() => {
+          sendAudioVolume('outside', audioSliderOutside.value);
+        }, 100);
+      });
+      audioSliderOutside.addEventListener('change', () => {
+        isDraggingAudioOutside = false;
+        sendAudioVolume('outside', audioSliderOutside.value);
+      });
+      audioSliderOutside.addEventListener('pointerup', () => { isDraggingAudioOutside = false; });
+      audioSliderOutside.addEventListener('touchend', () => { isDraggingAudioOutside = false; });
+    }
+
+    if (btnMuteOutside) {
+      btnMuteOutside.addEventListener('click', (e) => {
+        e.preventDefault();
+        toggleAudioMute('outside');
+      });
+    }
+  }
+
+  initAudioControls();
+
+  // ---------------- Media Player Subsystem ----------------
+  let currentMediaState = {
+    state: 'stop',
+    source: 'mpd',
+    title: '',
+    artist: '',
+    album: '',
+    elapsed: 0,
+    duration: 0
+  };
+
+  function updateMediaUI(mediaData) {
+    if (!mediaData) return;
+    currentMediaState = { ...currentMediaState, ...mediaData };
+
+    if (mediaSourceBadge) {
+      const src = (currentMediaState.source || 'MPD').toUpperCase();
+      mediaSourceBadge.textContent = src;
+      if (src === 'SPOTIFY') {
+        mediaSourceBadge.className = 'inst-badge green-badge media-badge';
+      } else if (src === 'AIRPLAY') {
+        mediaSourceBadge.className = 'inst-badge amber-badge media-badge';
+      } else if (src === 'RADIO') {
+        mediaSourceBadge.className = 'inst-badge teal-badge media-badge';
+      } else {
+        mediaSourceBadge.className = 'inst-badge cyan-badge media-badge';
+      }
+    }
+
+    if (mediaTitle) {
+      mediaTitle.textContent = currentMediaState.title || (currentMediaState.state === 'stop' ? 'Stopped' : 'Unknown Track');
+    }
+
+    if (mediaArtist) {
+      const artist = currentMediaState.artist || '';
+      const album = currentMediaState.album || '';
+      let sub = artist;
+      if (artist && album) sub = `${artist} — ${album}`;
+      else if (!artist && album) sub = album;
+      else if (!artist && !album) sub = currentMediaState.state === 'stop' ? 'moOde Audio' : '';
+      mediaArtist.textContent = sub;
+    }
+
+    if (mediaPlayIcon) {
+      mediaPlayIcon.textContent = currentMediaState.state === 'play' ? '⏸' : '▶';
+    }
+    if (btnMediaPlay) {
+      btnMediaPlay.title = currentMediaState.state === 'play' ? 'Pause' : 'Play';
+      btnMediaPlay.setAttribute('aria-label', currentMediaState.state === 'play' ? 'Pause' : 'Play');
+    }
+  }
+
+  let lastMediaCommandTime = 0;
+
+  function sendMediaCommand(command) {
+    const now = Date.now();
+    if (now - lastMediaCommandTime < 400) {
+      return;
+    }
+    lastMediaCommandTime = now;
+
+    const btns = [btnMediaPlay, btnMediaPrev, btnMediaNext];
+    btns.forEach(b => { if (b) b.classList.add('is-disabled'); });
+    setTimeout(() => {
+      btns.forEach(b => { if (b) b.classList.remove('is-disabled'); });
+    }, 400);
+
+    if (command === 'play_pause' && mediaPlayIcon) {
+      const nextState = currentMediaState.state === 'play' ? 'pause' : 'play';
+      mediaPlayIcon.textContent = nextState === 'play' ? '⏸' : '▶';
+    }
+    fetch(getApiUrl('/api/media/control'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command })
+    })
+    .catch(err => console.warn('[Media] Failed sending media command:', err));
+  }
+
+  function updateAudioHealthUI(healthData) {
+    if (!healthData || !audioHealthBadge) return;
+    const status = (healthData.status || 'unknown').toLowerCase();
+    if (status === 'healthy') {
+      audioHealthBadge.className = 'inst-badge green-badge media-badge';
+      audioHealthBadge.textContent = '● READY';
+      audioHealthBadge.title = healthData.message || 'All audio DACs and MPD healthy';
+    } else if (status === 'degraded') {
+      audioHealthBadge.className = 'inst-badge amber-badge media-badge';
+      audioHealthBadge.textContent = '⚠ DEGRADED';
+      audioHealthBadge.title = healthData.message || 'One or more outputs or DACs degraded';
+    } else if (status === 'restarting') {
+      audioHealthBadge.className = 'inst-badge cyan-badge media-badge badge-restarting';
+      audioHealthBadge.textContent = '● RESTARTING';
+      audioHealthBadge.title = 'Restarting audio subsystem & re-syncing DACs...';
+    } else if (status === 'simulated') {
+      audioHealthBadge.className = 'inst-badge cyan-badge media-badge';
+      audioHealthBadge.textContent = '● SIM';
+      audioHealthBadge.title = 'Simulated audio environment';
+    } else {
+      audioHealthBadge.className = 'inst-badge red-badge media-badge';
+      audioHealthBadge.textContent = '⚠ ERROR';
+      audioHealthBadge.title = healthData.message || 'Audio error';
+    }
+  }
+
+  function restartAudioSystem() {
+    if (!btnAudioRestart) return;
+    btnAudioRestart.classList.add('is-restarting', 'is-disabled');
+    updateAudioHealthUI({ status: 'restarting' });
+
+    fetch(getApiUrl('/api/audio/restart'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restore_playback: true })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.health) {
+        updateAudioHealthUI(data.health);
+      }
+      if (data && data.audio) {
+        updateAudioUI(data.audio);
+      }
+    })
+    .catch(err => {
+      console.warn('[Audio] Failed restarting audio system:', err);
+      updateAudioHealthUI({ status: 'error', message: 'Failed requesting audio restart' });
+    })
+    .finally(() => {
+      setTimeout(() => {
+        if (btnAudioRestart) {
+          btnAudioRestart.classList.remove('is-restarting', 'is-disabled');
+        }
+      }, 800);
+    });
+  }
+
+  function initMediaControls() {
+    if (btnMediaPlay) {
+      btnMediaPlay.addEventListener('click', (e) => {
+        e.preventDefault();
+        sendMediaCommand('play_pause');
+      });
+    }
+    if (btnMediaPrev) {
+      btnMediaPrev.addEventListener('click', (e) => {
+        e.preventDefault();
+        sendMediaCommand('prev');
+      });
+    }
+    if (btnMediaNext) {
+      btnMediaNext.addEventListener('click', (e) => {
+        e.preventDefault();
+        sendMediaCommand('next');
+      });
+    }
+    if (btnAudioRestart) {
+      btnAudioRestart.addEventListener('click', (e) => {
+        e.preventDefault();
+        restartAudioSystem();
+      });
+    }
+  }
+
+  initMediaControls();
 
 
   // ---------------- 72V Subsystem ----------------
@@ -1884,7 +2225,15 @@
 
         if (msg.type === 'snapshot' && msg.snapshot) {
           handleSnapshot(msg.snapshot);
+        } else if (msg.type === 'audio_state') {
+          if (msg.audio) updateAudioUI(msg.audio);
+          if (msg.audio_health) updateAudioHealthUI(msg.audio_health);
+        } else if (msg.type === 'media_state' && msg.media) {
+          updateMediaUI(msg.media);
         } else if (msg.type === 'packet' && msg.packet) {
+          if (msg.packet.topic === 'paeraki/media/state' && typeof msg.packet.payload === 'object') {
+            updateMediaUI(msg.packet.payload);
+          }
           if (!isLogPaused) {
             renderLogRow(msg.packet);
           }
@@ -1941,6 +2290,24 @@
     if (snap.server && snap.server.hostname) {
       const el = document.getElementById('server-host');
       if (el) el.textContent = snap.server.hostname ? `${snap.server.hostname} (${getServerHost()})` : getServerHost();
+    }
+
+    if (snap.audio) {
+      updateAudioUI(snap.audio);
+    } else if (snap.subsystems && snap.subsystems.audio) {
+      updateAudioUI(snap.subsystems.audio);
+    }
+
+    if (snap.audio_health) {
+      updateAudioHealthUI(snap.audio_health);
+    } else if (snap.subsystems && snap.subsystems.audio_health) {
+      updateAudioHealthUI(snap.subsystems.audio_health);
+    }
+
+    if (snap.media) {
+      updateMediaUI(snap.media);
+    } else if (snap.subsystems && snap.subsystems.media) {
+      updateMediaUI(snap.subsystems.media);
     }
 
     if (snap.subsystems) {

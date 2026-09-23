@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=20260914_08">
+  <link rel="stylesheet" href="/static/style.css?v=20260922_02">
 </head>
 <body>
   <div class="app-container">
@@ -115,6 +115,71 @@
                   <span class="home-cardinal-badge mono" id="home-val-gps-cardinal">--</span>
                 </div>
                 <span class="home-trio-sub mono" id="home-val-gps-sats">-- sats</span>
+              </div>
+            </div>
+
+            <!-- Audio Volume Controls: Inside (Cabin) & Outside (Cockpit) Volume & Mute -->
+            <div class="home-audio-card" id="home-audio-card">
+              <!-- Now Playing Mini-Player Transport Bar -->
+              <div class="media-player-row" id="media-player-row">
+                <div class="media-info-wrap">
+                  <button class="media-btn" id="btn-audio-restart" type="button" title="Restart Audio Engine & Re-sync DACs" aria-label="Restart Audio Engine">
+                    <span id="audio-restart-icon">🔄</span>
+                  </button>
+                  <span class="inst-badge cyan-badge media-badge" id="media-source-badge">MPD</span>
+                  <span class="inst-badge green-badge media-badge" id="audio-health-badge" title="Audio hardware and MPD status">● READY</span>
+                  <div class="media-text-wrap">
+                    <span class="media-title" id="media-title">No Track Playing</span>
+                    <span class="media-artist" id="media-artist">moOde Audio</span>
+                  </div>
+                </div>
+                <div class="media-transport-controls">
+                  <button class="media-btn" id="btn-media-prev" type="button" title="Previous Track" aria-label="Previous Track">
+                    <span>⏮</span>
+                  </button>
+                  <button class="media-btn media-btn-primary" id="btn-media-play" type="button" title="Play / Pause" aria-label="Play or Pause">
+                    <span id="media-play-icon">▶</span>
+                  </button>
+                  <button class="media-btn" id="btn-media-next" type="button" title="Next Track" aria-label="Next Track">
+                    <span>⏭</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="home-audio-zones">
+                <!-- Zone 1: Inside (Cabin) -->
+                <div class="home-audio-zone" id="home-audio-zone-inside">
+                  <div class="audio-zone-header">
+                    <div class="audio-title-wrap">
+                      <span class="audio-zone-title">INSIDE</span>
+                      <span class="inst-badge cyan-badge audio-badge">CABIN</span>
+                    </div>
+                  </div>
+                  <div class="audio-control-row">
+                    <input type="range" class="audio-range" id="audio-slider-inside" min="0" max="100" value="30" aria-label="Inside volume">
+                    <span class="audio-pct mono" id="audio-pct-inside">30%</span>
+                    <button class="audio-mute-btn" id="btn-mute-inside" type="button" title="Mute/Unmute Inside" aria-label="Mute/Unmute Inside">
+                      <span class="audio-mute-icon" id="audio-mute-icon-inside">🔊</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Zone 2: Outside (Cockpit) -->
+                <div class="home-audio-zone" id="home-audio-zone-outside">
+                  <div class="audio-zone-header">
+                    <div class="audio-title-wrap">
+                      <span class="audio-zone-title">OUTSIDE</span>
+                      <span class="inst-badge teal-badge audio-badge">COCKPIT</span>
+                    </div>
+                  </div>
+                  <div class="audio-control-row">
+                    <input type="range" class="audio-range" id="audio-slider-outside" min="0" max="100" value="30" aria-label="Outside volume">
+                    <span class="audio-pct mono" id="audio-pct-outside">30%</span>
+                    <button class="audio-mute-btn" id="btn-mute-outside" type="button" title="Mute/Unmute Outside" aria-label="Mute/Unmute Outside">
+                      <span class="audio-mute-icon" id="audio-mute-icon-outside">🔊</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -991,6 +1056,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260918_01"></script>
+  <script src="/static/app.js?v=20260922_02"></script>
 </body>
 </html>

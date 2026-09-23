@@ -1,0 +1,16 @@
+[Unit]
+Description=Paeraki Vessel Media Bridge (MPD & moOde to MQTT)
+After=network.target mpd.service
+Wants=mpd.service
+
+[Service]
+Type=simple
+User=jh
+Group=jh
+WorkingDirectory=/home/jh/paeraki
+ExecStart=/home/jh/.local/bin/uv run --python /home/jh/paeraki/.venv /home/jh/paeraki/logger/media_bridge.py --broker 192.168.1.1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
