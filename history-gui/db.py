@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot
 
 DB_PATH = Path("/home/jh/paeraki/data/paeraki.db")
@@ -564,3 +566,47 @@ class DbQueryWorker(QRunnable):
             self.signals.error.emit(str(e))
         finally:
             self.signals.finished.emit()
+
+
+def compute_max_gap(t_arr: np.ndarray) -> float:
+    """Computes dynamic max allowable gap in seconds for telemetry continuity.
+    Defaults to max(600.0, 3.0 * median_dt) (minimum 10 minutes, or 3x the typical sample interval).
+    """
+    if len(t_arr) <= 1:
+        return 600.0
+    dt = np.diff(t_arr)
+    valid_dt = dt[dt > 0]
+    median_dt = float(np.median(valid_dt)) if len(valid_dt) > 0 else 1.0
+    return max(600.0, 3.0 * median_dt)
+
+
+def compute_connect_array(
+    t_arr: np.ndarray,
+    y_arr: np.ndarray,
+    max_gap: float | None = None,
+) -> np.ndarray:
+    """Computes a boolean/ubyte array for PyQtGraph's connect parameter.
+
+    Connects adjacent points i and i+1 if and only if:
+    1. Both y_arr[i] and y_arr[i+1] are finite (not NaN, None, or Inf).
+    2. The time interval (t_arr[i+1] - t_arr[i]) <= max_gap.
+
+    If max_gap is None, defaults dynamically to:
+    max(600.0, 3.0 * median_dt) (minimum 10 minutes, or 3x the typical sample interval).
+    """
+    n = min(len(t_arr), len(y_arr))
+    if n <= 1:
+        return np.ones(n, dtype=np.ubyte)
+
+    t = t_arr[:n]
+    y = y_arr[:n]
+    dt = np.diff(t)
+    if max_gap is None:
+        max_gap = compute_max_gap(t)
+
+    finite_mask = np.isfinite(y)
+    connect = np.zeros(n, dtype=np.ubyte)
+    connect[:-1] = (dt <= max_gap).astype(np.ubyte) & finite_mask[:-1] & finite_mask[1:]
+    return connect
+
+

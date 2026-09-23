@@ -23,7 +23,9 @@ from widgets.unit_chart_stack import UnitChartStack
 from widgets.tab_72v import Tab72V
 from widgets.tab_12v import Tab12V
 from widgets.tab_gps import TabGPS
+from widgets.detail_panel import DetailPanel
 import db
+
 
 
 @pytest.fixture(scope="session")
@@ -124,3 +126,152 @@ def test_tab_gps_breaks_lines_on_null(qapp):
     path = tab.curve_sog.curve.getPath()
     has_break = any(path.elementAt(i).type == QPainterPath.ElementType.MoveToElement for i in range(2, path.elementCount()))
     assert has_break, "TabGPS SOG curve line should break across lost GPS fix"
+
+
+def test_compute_connect_array_and_max_gap():
+    # 5 samples at 1-second intervals (median dt = 1.0s, max_gap = 600.0s)
+    t = np.array([100.0, 101.0, 102.0, 1000.0, 1001.0])
+    y = np.array([12.5, 12.6, 12.7, 13.0, 13.1])
+    c = db.compute_connect_array(t, y)
+    # Between 102.0 and 1000.0 is 898s > 600s, so c[2] must be 0 (disconnected)
+    assert c[0] == 1
+    assert c[1] == 1
+    assert c[2] == 0
+    assert c[3] == 1
+    assert c[4] == 0
+
+    # With NaN
+    y_nan = np.array([12.5, np.nan, 12.7, 13.0, 13.1])
+    c_nan = db.compute_connect_array(t, y_nan)
+    assert c_nan[0] == 0
+    assert c_nan[1] == 0
+    assert c_nan[2] == 0
+
+
+def test_unit_chart_stack_breaks_lines_on_downtime_gaps(qapp):
+    stack = UnitChartStack()
+    stack.update_selected_metrics({"12v_v"})
+
+    # Pure finite values, but spanning a 24-hour downtime gap (no rows in database during gap)
+    dummy_12v = [
+        {"epoch_ms": 1_000_000, "battery_voltage": 13.4},
+        {"epoch_ms": 1_005_000, "battery_voltage": 13.5},
+        {"epoch_ms": 1_010_000, "battery_voltage": 13.45},
+        # 24-hour offline gap (86,400,000 ms)
+        {"epoch_ms": 1_010_000 + 86_400_000, "battery_voltage": 12.8},
+        {"epoch_ms": 1_015_000 + 86_400_000, "battery_voltage": 12.85},
+    ]
+
+    stack.set_table_data({"telemetry_12v": dummy_12v})
+    v_curve = stack._plot_containers["V"].curves["12v_v"]
+
+    path = v_curve.curve.getPath()
+    element_types = [path.elementAt(i).type for i in range(path.elementCount())]
+    # Point 3 (first point after the 24h gap) must be a MoveToElement (type 0) to avoid drawing a diagonal line
+    assert element_types[3] == QPainterPath.ElementType.MoveToElement, "Curve must break across downtime gap"
+
+
+def test_detail_panel_shows_dashes_in_downtime_gap(qapp):
+    panel = DetailPanel()
+    # Select fridge_left_t and 12v_v
+    panel.set_data({"fridge_left_t", "12v_v"}, {
+        "telemetry_fridge": [
+            {"epoch_ms": 1_000_000, "left_temp": 5.0},
+            {"epoch_ms": 1_005_000, "left_temp": 5.2},
+            # 70-hour gap
+            {"epoch_ms": 1_000_000 + 250_000_000, "left_temp": 6.5},
+            {"epoch_ms": 1_005_000 + 250_000_000, "left_temp": 6.6},
+        ],
+        "telemetry_12v": [
+            {"epoch_ms": 1_000_000, "battery_voltage": 13.5},
+            {"epoch_ms": 1_005_000, "battery_voltage": 13.6},
+            # 70-hour gap
+            {"epoch_ms": 1_000_000 + 250_000_000, "battery_voltage": 12.9},
+            {"epoch_ms": 1_005_000 + 250_000_000, "battery_voltage": 12.95},
+        ]
+    })
+
+    # 1. Cursor in the middle of the 70h gap (t = 1000 + 100000 = 101000s)
+    cursor_gap_sec = (1_000_000 + 100_000_000) / 1000.0
+    panel.update_cursor_position(cursor_gap_sec)
+
+    fridge_lbl = panel._metric_val_labels["fridge_left_t"]
+    v_lbl = panel._metric_val_labels["12v_v"]
+
+    # In downtime gap, values must display as dashes (--), not 5.2 or 6.5
+    assert "-- °C" in fridge_lbl.text(), f"Expected dashed readout in gap, got: {fridge_lbl.text()}"
+    assert "-- V" in v_lbl.text(), f"Expected dashed readout in gap, got: {v_lbl.text()}"
+
+    # 2. Cursor right next to the second burst (t = 251000s + 2s)
+    cursor_active_sec = (1_000_000 + 250_000_000 + 2000) / 1000.0
+    panel.update_cursor_position(cursor_active_sec)
+    assert "6.5 °C" in fridge_lbl.text()
+    assert "12.90 V" in v_lbl.text()
+
+
+def test_tab_12v_breaks_lines_on_downtime_gaps(qapp):
+    tab = Tab12V()
+    dummy_12v = [
+        {"epoch_ms": 1_000_000, "battery_voltage": 13.2, "solar_power": 120.0, "load_power": -45.0},
+        {"epoch_ms": 1_005_000, "battery_voltage": 13.25, "solar_power": 125.0, "load_power": -46.0},
+        # 30-hour gap
+        {"epoch_ms": 1_000_000 + 108_000_000, "battery_voltage": 12.6, "solar_power": 0.0, "load_power": -20.0},
+        {"epoch_ms": 1_005_000 + 108_000_000, "battery_voltage": 12.65, "solar_power": 10.0, "load_power": -22.0},
+    ]
+    tab.update_data(dummy_12v)
+
+    path = tab.curve_batt_v.curve.getPath()
+    assert path.elementAt(2).type == QPainterPath.ElementType.MoveToElement, "12V curve must break across gap"
+
+
+def test_tab_72v_breaks_lines_on_downtime_gaps(qapp):
+    tab = Tab72V()
+    dummy_72v = [
+        {"epoch_ms": 1_000_000, "total_voltage": 78.5, "current": 5.0, "power": 392.5, "cell_delta_mv": 12},
+        {"epoch_ms": 1_005_000, "total_voltage": 78.55, "current": 5.1, "power": 400.0, "cell_delta_mv": 12},
+        # Gap
+        {"epoch_ms": 1_000_000 + 108_000_000, "total_voltage": 77.0, "current": 0.0, "power": 0.0, "cell_delta_mv": 14},
+        {"epoch_ms": 1_005_000 + 108_000_000, "total_voltage": 77.05, "current": 0.1, "power": 7.7, "cell_delta_mv": 14},
+    ]
+    tab.update_data(dummy_72v)
+
+    path = tab.curve_voltage.curve.getPath()
+    assert path.elementAt(2).type == QPainterPath.ElementType.MoveToElement, "72V curve must break across gap"
+
+
+def test_tab_gps_breaks_lines_on_downtime_gaps(qapp):
+    tab = TabGPS()
+    dummy_gps = [
+        {"epoch_ms": 1_000_000, "sog_knots": 4.5, "cog_true": 180.0, "latitude": -41.28, "longitude": 174.77, "fix": 1},
+        {"epoch_ms": 1_005_000, "sog_knots": 4.6, "cog_true": 181.0, "latitude": -41.281, "longitude": 174.771, "fix": 1},
+        # Gap
+        {"epoch_ms": 1_000_000 + 108_000_000, "sog_knots": 0.2, "cog_true": 90.0, "latitude": -41.30, "longitude": 174.80, "fix": 1},
+        {"epoch_ms": 1_005_000 + 108_000_000, "sog_knots": 0.3, "cog_true": 92.0, "latitude": -41.301, "longitude": 174.801, "fix": 1},
+    ]
+    tab.update_data(dummy_gps)
+
+    path_sog = tab.curve_sog.curve.getPath()
+    assert path_sog.elementAt(2).type == QPainterPath.ElementType.MoveToElement, "GPS SOG curve must break across gap"
+
+    path_track = tab.curve_track.curve.getPath()
+    assert path_track.elementAt(2).type == QPainterPath.ElementType.MoveToElement, "GPS track curve must break across gap"
+
+
+def test_unit_chart_stack_never_creates_secondary_y_axis(qapp):
+    stack = UnitChartStack()
+    # Select both 72V pack voltage and 12V house voltage
+    stack.update_selected_metrics({"72v_v", "12v_v"})
+
+    container = stack._plot_containers["V"]
+    # Both metrics must be in the primary curves dictionary on the common axis
+    assert "72v_v" in container.curves
+    assert "12v_v" in container.curves
+
+    # No secondary view or secondary curve attributes
+    assert not hasattr(container, "secondary_view") or container.secondary_view is None
+    assert not hasattr(container, "secondary_curve") or container.secondary_curve is None
+
+    # Right axis must not be visible or linked to a separate view
+    assert not container.plot_widget.plotItem.getAxis("right").isVisible()
+
+

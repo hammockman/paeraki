@@ -58,9 +58,6 @@ class UnitPlotContainer(QFrame):
         self.is_bottom = is_bottom
 
         self.curves: dict[str, pg.PlotDataItem] = {}
-        self.secondary_view: pg.ViewBox | None = None
-        self.secondary_curve: pg.PlotDataItem | None = None
-        self.secondary_metric_id: str | None = None
 
         self._init_ui()
 
@@ -100,31 +97,11 @@ class UnitPlotContainer(QFrame):
                 pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen("#334155", width=1, style=Qt.PenStyle.DashLine))
             )
 
-        # Check if we need a secondary right axis (e.g. for V where 72V and 12V coexist)
-        has_72v = any(m.id.startswith("72v_v") or m.id.startswith("72v_cell") for m in self.metrics)
-        has_12v = any(m.id.startswith("12v_v") or m.id.startswith("12v_pv_v") or m.id.startswith("12v_load_v") for m in self.metrics)
-
-        needs_dual_v = (self.unit == "V" and has_72v and has_12v)
-        if needs_dual_v:
-            self.secondary_view = pg.ViewBox()
-            self.secondary_view.setMouseEnabled(x=False, y=False)
-            self.plot_widget.scene().addItem(self.secondary_view)
-            self.plot_widget.getAxis("right").linkToView(self.secondary_view)
-            self.secondary_view.setXLink(self.plot_widget)
-            self.plot_widget.showAxis("right")
-            self.plot_widget.getAxis("right").setLabel("12V System", units="V", color="#38bdf8")
-            self.plot_widget.getViewBox().sigResized.connect(self._sync_secondary_view)
-
-        # Create curves for each metric
+        # Create curves for each metric on the common unit Y-axis
         for m in self.metrics:
             pen = pg.mkPen(color=m.color, width=2)
-            if needs_dual_v and m.id.startswith("12v"):
-                self.secondary_curve = pg.PlotDataItem(pen=pen, name=f"{m.name} ({m.unit})", connect="finite")
-                self.secondary_view.addItem(self.secondary_curve)
-                self.secondary_metric_id = m.id
-            else:
-                curve = self.plot_widget.plot(pen=pen, name=f"{m.name} ({m.unit})", connect="finite")
-                self.curves[m.id] = curve
+            curve = self.plot_widget.plot(pen=pen, name=f"{m.name} ({m.unit})", connect="finite")
+            self.curves[m.id] = curve
 
         # Synchronized vertical crosshair cursor line
         self.cursor_line = pg.InfiniteLine(
@@ -134,11 +111,6 @@ class UnitPlotContainer(QFrame):
         self.plot_widget.addItem(self.cursor_line, ignoreBounds=True)
 
         layout.addWidget(self.plot_widget)
-
-    def _sync_secondary_view(self):
-        if self.secondary_view:
-            self.secondary_view.setGeometry(self.plot_widget.getViewBox().sceneBoundingRect())
-            self.secondary_view.linkedViewChanged(self.plot_widget.getViewBox(), self.secondary_view.XAxis)
 
     def set_bottom_axis_visible(self, visible: bool):
         """Toggle bottom time axis visibility."""
@@ -266,21 +238,16 @@ class UnitChartStack(QWidget):
                 if not rows or t_arr is None or len(t_arr) == 0:
                     if m.id in container.curves:
                         container.curves[m.id].clear()
-                    elif container.secondary_metric_id == m.id and container.secondary_curve:
-                        container.secondary_curve.clear()
                     continue
 
                 all_t_min.append(float(t_arr[0]))
                 all_t_max.append(float(t_arr[-1]))
 
                 y_arr = np.array([np.nan if r.get(m.column) is None else float(r.get(m.column)) for r in rows], dtype=np.float64)
+                connect_mask = db.compute_connect_array(t_arr, y_arr)
 
-                if container.secondary_metric_id == m.id and container.secondary_curve:
-                    container.secondary_curve.setData(t_arr, y_arr, connect="finite")
-                    if container.secondary_view:
-                        container.secondary_view.enableAutoRange(axis="y")
-                elif m.id in container.curves:
-                    container.curves[m.id].setData(t_arr, y_arr, connect="finite")
+                if m.id in container.curves:
+                    container.curves[m.id].setData(t_arr, y_arr, connect=connect_mask)
 
             container.plot_widget.enableAutoRange(axis="y")
 

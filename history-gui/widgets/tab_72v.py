@@ -21,7 +21,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import db
 from widgets.viewbox import TimeSeriesViewBox
+
 
 
 class Tab72V(QWidget):
@@ -296,10 +298,15 @@ class Tab72V(QWidget):
         deltas = np.array([np.nan if r.get("cell_delta_mv") is None else float(r.get("cell_delta_mv")) for r in rows], dtype=np.float64)
 
         # Plot curves
-        self.curve_voltage.setData(timestamps_sec, voltages, connect="finite")
-        self.curve_current.setData(timestamps_sec, currents, connect="finite")
-        self.curve_power.setData(timestamps_sec, powers, connect="finite")
-        self.curve_delta.setData(timestamps_sec, deltas, connect="finite")
+        connect_v = db.compute_connect_array(timestamps_sec, voltages)
+        connect_i = db.compute_connect_array(timestamps_sec, currents)
+        connect_p = db.compute_connect_array(timestamps_sec, powers)
+        connect_d = db.compute_connect_array(timestamps_sec, deltas)
+
+        self.curve_voltage.setData(timestamps_sec, voltages, connect=connect_v)
+        self.curve_current.setData(timestamps_sec, currents, connect=connect_i)
+        self.curve_power.setData(timestamps_sec, powers, connect=connect_p)
+        self.curve_delta.setData(timestamps_sec, deltas, connect=connect_d)
 
         if len(timestamps_sec) > 1:
             t_min = float(timestamps_sec[0])
@@ -366,8 +373,11 @@ class Tab72V(QWidget):
         currents = np.array([np.nan if r.get("output_current") is None else float(r.get("output_current")) for r in rows], dtype=np.float64)
         powers = np.array([np.nan if r.get("output_power") is None else float(r.get("output_power")) for r in rows], dtype=np.float64)
 
-        self.curve_charger_current.setData(timestamps_sec, currents, connect="finite")
-        self.curve_charger_power.setData(timestamps_sec, powers, connect="finite")
+        connect_ci = db.compute_connect_array(timestamps_sec, currents)
+        connect_cp = db.compute_connect_array(timestamps_sec, powers)
+
+        self.curve_charger_current.setData(timestamps_sec, currents, connect=connect_ci)
+        self.curve_charger_power.setData(timestamps_sec, powers, connect=connect_cp)
 
     def _render_cell_bars(self, row: dict[str, Any]):
         cell_json = row.get("cell_voltages_json")
@@ -417,8 +427,31 @@ class Tab72V(QWidget):
 
         # Find closest record index
         idx = int(np.searchsorted(self._timestamps, x_val))
-        idx = max(0, min(len(self.data) - 1, idx))
-        row = self.data[idx]
+        candidates = []
+        if idx < len(self._timestamps):
+            candidates.append(idx)
+        if idx > 0:
+            candidates.append(idx - 1)
+        best_idx = min(candidates, key=lambda i: abs(self._timestamps[i] - x_val)) if candidates else idx
+
+        max_gap = db.compute_max_gap(self._timestamps)
+        if abs(self._timestamps[best_idx] - x_val) > max_gap:
+            # In downtime gap
+            dt_cursor = datetime.datetime.fromtimestamp(x_val)
+            time_str = dt_cursor.strftime("%Y-%m-%d %H:%M:%S")
+            self.lbl_scrub_time.setText(f"{time_str} (Offline)")
+            self.lbl_scrub_stats.setText("V: --.- V | I: --.- A | P: -- W | Δ: -- mV")
+            self.kpi_v_val.setText("--.- V")
+            self.kpi_v_sub.setText("Offline")
+            self.kpi_p_val.setText("-- W")
+            self.kpi_p_sub.setText("Offline")
+            self.kpi_delta_val.setText("-- mV")
+            self.kpi_delta_sub.setText("Offline")
+            self.kpi_temp_val.setText("--.- °C")
+            self.kpi_temp_sub.setText("Offline")
+            return
+
+        row = self.data[best_idx]
 
         # Update inspector label
         dt = datetime.datetime.fromtimestamp(row["epoch_ms"] / 1000.0)

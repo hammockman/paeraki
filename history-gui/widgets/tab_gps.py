@@ -20,7 +20,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import db
 from widgets.viewbox import TimeSeriesViewBox
+
 
 
 def haversine_distance_nm(lat1, lon1, lat2, lon2) -> float:
@@ -230,8 +232,10 @@ class TabGPS(QWidget):
         sogs = np.array([np.nan if r.get("sog_knots") is None else float(r.get("sog_knots")) for r in rows], dtype=np.float64)
         cogs = np.array([np.nan if r.get("cog_true") is None else float(r.get("cog_true")) for r in rows], dtype=np.float64)
 
-        self.curve_sog.setData(timestamps_sec, sogs, connect="finite")
-        self.curve_cog.setData(timestamps_sec, cogs, connect="finite")
+        connect_sog = db.compute_connect_array(timestamps_sec, sogs)
+        connect_cog = db.compute_connect_array(timestamps_sec, cogs)
+        self.curve_sog.setData(timestamps_sec, sogs, connect=connect_sog)
+        self.curve_cog.setData(timestamps_sec, cogs, connect=connect_cog)
         self.plot_sog.enableAutoRange(axis="y")
 
         if len(timestamps_sec) > 1:
@@ -250,7 +254,8 @@ class TabGPS(QWidget):
         if valid_coords:
             track_lats = np.array([float(r["latitude"]) if (r.get("latitude") is not None and abs(r["latitude"]) > 0.1) else np.nan for r in rows], dtype=np.float64)
             track_lons = np.array([float(r["longitude"]) if (r.get("longitude") is not None and abs(r["longitude"]) > 0.1) else np.nan for r in rows], dtype=np.float64)
-            self.curve_track.setData(track_lons, track_lats, connect="finite")
+            connect_track = db.compute_connect_array(timestamps_sec, track_lats)
+            self.curve_track.setData(track_lons, track_lats, connect=connect_track)
 
             lats = np.array([r["latitude"] for r in valid_coords], dtype=np.float64)
             lons = np.array([r["longitude"] for r in valid_coords], dtype=np.float64)
@@ -369,7 +374,31 @@ class TabGPS(QWidget):
         if x_val < self._timestamps[0] or x_val > self._timestamps[-1]:
             return
         idx = int(np.searchsorted(self._timestamps, x_val))
-        self._scrub_to_index(idx)
+        candidates = []
+        if idx < len(self._timestamps):
+            candidates.append(idx)
+        if idx > 0:
+            candidates.append(idx - 1)
+        best_idx = min(candidates, key=lambda i: abs(self._timestamps[i] - x_val)) if candidates else idx
+
+        max_gap = db.compute_max_gap(self._timestamps)
+        if abs(self._timestamps[best_idx] - x_val) > max_gap:
+            # In downtime gap
+            self.v_line_sog.setPos(x_val)
+            self.v_line_cog.setPos(x_val)
+            self.marker_scrub.clear()
+            dt = datetime.datetime.fromtimestamp(x_val)
+            time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+            self.kpi_sog_val.setText("--.- kts")
+            self.kpi_sog_sub.setText(f"At: {time_str} | Offline")
+            self.kpi_pos_val.setText("Offline")
+            self.kpi_pos_sub.setText("No GPS Fix")
+            self.kpi_fix_val.setText("0 Sats")
+            self.kpi_fix_sub.setText("Offline")
+            self.kpi_dist_sub.setText(f"Scrub: {time_str} (Offline)")
+            return
+
+        self._scrub_to_index(best_idx)
 
     def _on_mouse_moved_map(self, pos):
         """Handle cursor scrubbing across 2D vessel track map."""

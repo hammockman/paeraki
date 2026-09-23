@@ -18,7 +18,9 @@ from PyQt6.QtWidgets import (
 )
 
 
+import db
 from widgets.viewbox import TimeSeriesViewBox
+
 
 
 class Tab12V(QWidget):
@@ -174,9 +176,13 @@ class Tab12V(QWidget):
         solar_w = np.array([np.nan if r.get("solar_power") is None else abs(float(r.get("solar_power"))) for r in rows], dtype=np.float64)
         load_w = np.array([np.nan if r.get("load_power") is None else -abs(float(r.get("load_power"))) for r in rows], dtype=np.float64)
 
-        self.curve_batt_v.setData(timestamps_sec, batt_v, connect="finite")
-        self.curve_solar_w.setData(timestamps_sec, solar_w, connect="finite")
-        self.curve_load_w.setData(timestamps_sec, load_w, connect="finite")
+        connect_batt = db.compute_connect_array(timestamps_sec, batt_v)
+        connect_solar = db.compute_connect_array(timestamps_sec, solar_w)
+        connect_load = db.compute_connect_array(timestamps_sec, load_w)
+
+        self.curve_batt_v.setData(timestamps_sec, batt_v, connect=connect_batt)
+        self.curve_solar_w.setData(timestamps_sec, solar_w, connect=connect_solar)
+        self.curve_load_w.setData(timestamps_sec, load_w, connect=connect_load)
 
         self.plot_batt.enableAutoRange(axis="y")
         self.plot_solar.enableAutoRange(axis="y")
@@ -241,8 +247,29 @@ class Tab12V(QWidget):
 
         # Dynamic scrubbing for 12V header cards
         idx = int(np.searchsorted(self._timestamps, x_val))
-        idx = max(0, min(len(self.data) - 1, idx))
-        row = self.data[idx]
+        candidates = []
+        if idx < len(self._timestamps):
+            candidates.append(idx)
+        if idx > 0:
+            candidates.append(idx - 1)
+        best_idx = min(candidates, key=lambda i: abs(self._timestamps[i] - x_val)) if candidates else idx
+
+        max_gap = db.compute_max_gap(self._timestamps)
+        if abs(self._timestamps[best_idx] - x_val) > max_gap:
+            # In downtime gap
+            dt_cursor = datetime.datetime.fromtimestamp(x_val)
+            time_str = dt_cursor.strftime("%Y-%m-%d %H:%M:%S")
+            self.kpi_batt_val.setText("--.- V")
+            self.kpi_batt_sub.setText(f"At: {time_str} | Offline")
+            self.kpi_solar_val.setText("-- W")
+            self.kpi_solar_sub.setText("Offline")
+            self.kpi_load_val.setText("-- W")
+            self.kpi_load_sub.setText("Offline")
+            self.kpi_state_val.setText("Offline")
+            self.kpi_state_sub.setText("No Telemetry")
+            return
+
+        row = self.data[best_idx]
 
         dt = datetime.datetime.fromtimestamp(row["epoch_ms"] / 1000.0)
         bv = row.get("battery_voltage") or 0.0

@@ -290,17 +290,23 @@ class DetailPanel(QWidget):
         else:
             self.lbl_time_sub.setText(f"Timestamp {cursor_sec:.1f}s")
 
-        # Query nearest row for each table
+        # Query nearest row for each table within dynamic max_gap
         nearest_rows: dict[str, dict[str, Any]] = {}
         for tbl, t_arr in self._timestamps.items():
             rows = self._table_data.get(tbl, [])
             if not rows or t_arr is None or len(t_arr) == 0:
                 continue
             idx = int(np.searchsorted(t_arr, cursor_sec))
-            idx = max(0, min(len(rows) - 1, idx))
-            # Check if cursor is within active table range
-            if (t_arr[0] - 60.0) <= cursor_sec <= (t_arr[-1] + 60.0):
-                nearest_rows[tbl] = rows[idx]
+            candidates = []
+            if idx < len(t_arr):
+                candidates.append(idx)
+            if idx > 0:
+                candidates.append(idx - 1)
+            if candidates:
+                best_idx = min(candidates, key=lambda i: abs(t_arr[i] - cursor_sec))
+                max_gap = db.compute_max_gap(t_arr)
+                if abs(t_arr[best_idx] - cursor_sec) <= max_gap:
+                    nearest_rows[tbl] = rows[best_idx]
 
         # Update metric labels
         for m in self._selected_metrics:
@@ -343,6 +349,11 @@ class DetailPanel(QWidget):
         row_72 = nearest_rows.get("telemetry_72v")
         if row_72 is not None:
             self._render_cell_bars(row_72)
+        else:
+            self.lbl_cell_title.setText(
+                "<b style='color:#00f59b; font-size:11px;'>20S CELL BALANCE SPECTRUM</b> "
+                "<span style='color:#64748b; font-size:10px;'>Offline</span>"
+            )
 
         # Contextual GPS Fix
         row_stng = nearest_rows.get("telemetry_seatalkng")
@@ -362,6 +373,9 @@ class DetailPanel(QWidget):
                 lon_min = (abs(lon) - lon_deg) * 60.0
                 self.lbl_gps_pos.setText(f"{lat_deg:02d}°{lat_min:06.3f}' {lat_card}  •  {lon_deg:03d}°{lon_min:06.3f}' {lon_card}")
                 self.lbl_gps_meta.setText(f"Satellites: {sats} | HDOP: {hdop} | {source_lbl}")
+        else:
+            self.lbl_gps_pos.setText("--° --' S  •  ---° --' E")
+            self.lbl_gps_meta.setText("Offline (No Fix)")
 
     def _render_cell_bars(self, row: dict[str, Any]):
         """Render 20S cell balance bar heights at the current instant."""
