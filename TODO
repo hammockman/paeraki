@@ -6,7 +6,9 @@ Fixes
 - fix BMS login 
 - reduce the load on "look"
   - [DONE] move the dashboard server to "sing" (running on port 8080 alongside 3-day buffer logger and auto-sync to hammer)
-
+- [DONE] rebuild RUT955 with OS 7 (7.6.21)
+- [DONE] why no internet access from sing when attached via ethernet to router? (Resolved: gateway/DNS & Spark TTL normalization)
+- [DONE] why no internet access for android wifi device? (Resolved: Spark captive portal bypass / TTL=64 on qmimux0)
 
 Monitoring
 ==========
@@ -48,6 +50,10 @@ Monitoring
   - [DONE] 12V 50% capacity (Implemented in modular alarms/watch.py daemon with SMS via Teltonika router)\
 - [DONE] local logging on paeraki for when VPN link down (Implemented in logger/buffer_logger.py 3-day rolling buffer on sing with automated sync to hammer)
 - does the 72v battery charger actually report temperature? why is no data being captured?
+- [PARKED] figure out a way to get an mqtt message to the outside world (NOT via VPN) maybe using router MQTT broker (Plan documented in mqtt_plan.md, parked pending cloud/VPS broker provisioning)
+- canbus/rs485 comms with 72V BMS
+- canbus/rs485 comms with Goldenmotor controller
+
 
 
 Control
@@ -63,7 +69,7 @@ things
   - bearing
   - tacking
   - screen brightness
-- [DONE] music player setup (dual-zone Apple DACs, volume sliders & mute toggles on dashboard Home tab, MQTT media bridge daemon, mini-transport bar, safety auto-pause - see TODO.music)
+- [DONE] music player setup (dual-zone Apple DACs, volume sliders & mute toggles on dashboard Home tab, MQTT media bridge daemon, mini-transport bar, safety auto-pause - see README.md Section 8)
 - 12V load switching (and circuit protection)
   - via wifi device???
     - interior lights
@@ -80,3 +86,9 @@ things
     - bilge pumps + level monitor (permanently on but still measure current)
     - auto pilot
     - sensors (ray marine compass, wind, depth)
+
+
+Shopping
+========
+
+USB-RS485 UART cable requirements?

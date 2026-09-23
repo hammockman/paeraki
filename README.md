@@ -773,7 +773,139 @@ uv run python cortex/watch.py --mock --broker 192.168.1.1
 
 ---
 
-## 8. Development & Deployment Workflow
+## 8. Dual-Zone Marine Audio System & Media Bridge (`sing`)
+
+The vessel audio system is deployed on **`sing`** (Raspberry Pi 4B running moOde OS), providing **independent remote volume and mute control** for the cabin interior and cockpit exterior without requiring manual adjustment of the Fusion head unit. (Note: all 12V Renogy and 72V JBD BMS battery safety telemetry is handled separately on **`look`**).
+
+### Architecture & Hardware Topology
+
+```
+                                  [ sing (Raspberry Pi 4B) ]
+                                             │
+                ┌────────────────────────────┴────────────────────────────┐
+                ▼                                                         ▼
+     [ Top USB 2.0 Port 1-1.3 ]                                [ Bottom USB 3.0 Port 1-1.2 ]
+   (Apple USB-C DAC: inside)                                (Apple USB-C DAC: outside)
+   (Serial: DWH62470BL02FTRAM)                               (Serial: DWH62520AU52FTRAV)
+                │                                                         │
+                │ (3.5mm to Dual RCA Cable)                               │ (3.5mm to Dual RCA Cable)
+                ▼                                                         ▼
+     [ Fusion MS-RA55 (AUX In) ]                               [ Sony XM-N502 Amplifier ]
+     (Set to AUX Mode, Fixed Baseline Vol)                     (Line Input / Bridged Mono Mode)
+                │                                                         │
+                ▼                                                         ▼
+     [ 2x Cabin Interior Speakers ]                            [ 1x Cockpit Centerline Speaker ]
+     (Zone 1: Cabin Stereo 'inside')                           (Zone 2: Bridged Mono 'outside')
+```
+
+### Deployed Hardware & Audio Configuration
+
+#### 1. Udev Persistent Device Naming (`/etc/udev/rules.d/85-paeraki-audio.rules`)
+Ensures ALSA card identifiers remain pinned across reboots and USB re-enumerations by matching hardware serial numbers:
+```udev
+SUBSYSTEM=="sound", KERNEL=="card*", ATTRS{serial}=="DWH62470BL02FTRAM", ATTR{id}="inside"
+SUBSYSTEM=="sound", KERNEL=="card*", ATTRS{serial}=="DWH62520AU52FTRAV", ATTR{id}="outside"
+```
+* **Top USB 2.0 Port** (`1-1.3`, Serial `DWH62470BL02FTRAM`) $\rightarrow$ **`hw:inside`**
+* **Bottom USB 3.0 Port** (`1-1.2`, Serial `DWH62520AU52FTRAV`) $\rightarrow$ **`hw:outside`** (separated onto USB 3.0 stack to prevent USB 1.1 Full Speed isochronous bandwidth / TT micro-frame collision)
+
+#### 2. ALSA Configuration (`/etc/asound.conf`)
+* **`pcm.inside`**: Direct hardware plug to Fusion AUX (`hw:inside,0`).
+* **`pcm.outside`**: Direct hardware plug to Sony XM-N502 (`hw:outside,0`). Clean, bit-perfect direct stereo; mono downmixing is handled at the Sony XM-N502 amplifier stage, eliminating software buffer tearing and DSP phase distortion.
+* Both cards support direct hardware analog volume control (`Headphone`, 0–120) and hardware mute toggles (`amixer -c <zone> sset Headphone mute/unmute`).
+
+#### 3. MPD & moOde Audio Integration
+Configured in `/etc/mpd.conf` and `/etc/mpd.custom.conf`:
+* **Output 4**: `Inside (Cabin Stereo)` (`close_on_pause "yes"`, `format "48000:16:2"`)
+* **Output 5**: `Outside (Cockpit Mono)` (`close_on_pause "yes"`, `format "48000:16:2"`)
+* **Output 6**: `Whole Boat (Cabin + Cockpit)`
+* **Note on `close_on_pause "yes"`**: USB Audio DACs do not support ALSA hardware pause (`snd_pcm_pause`). Without `close_on_pause "yes"`, pausing and unpausing causes the Pi 4's xHCI USB controller to disable the isochronous endpoint (`ERROR Transfer event for disabled endpoint`), producing a quick burst of stale buffer noise followed by silence. `close_on_pause "yes"` cleanly closes the ALSA PCM device on pause and re-opens a fresh zeroed stream on play.
+
+#### 4. Useful Terminal Commands on `sing`
+```bash
+# Volume control
+amixer -c inside sset Headphone 75%
+amixer -c outside sset Headphone 60%
+
+# Quick Mute Cockpit (e.g. entering a marina)
+amixer -c outside sset Headphone mute
+amixer -c outside sset Headphone unmute
+
+# Toggle MPD outputs
+mpc enable "Inside (Cabin Stereo)"
+mpc disable "Outside (Cockpit Mono)"
+```
+
+### Web Dashboard Audio Integration (Deployed on `sing:8080`)
+
+The Paeraki Web Dashboard Home tab features horizontal volume sliders and dedicated mute toggles directly above the 72V propulsion battery indicator:
+
+* **Inside (Cabin)**: Adjusts ALSA hardware mixer `amixer -c inside sset Headphone <vol>%`.
+* **Outside (Cockpit)**: Adjusts ALSA hardware mixer `amixer -c outside sset Headphone <vol>%`.
+* **Mute Toggles**: Located on the right-hand side of each slider (`🔊` / `🔇`), turns hardware output on/off (`amixer -c <zone> sset Headphone mute/unmute`).
+* **Real-Time Sync**: REST endpoints (`/api/audio/state`, `/api/audio/volume`, `/api/audio/mute`) and WebSockets broadcast updates instantly to all connected mobile, tablet, and desktop dashboards.
+
+### Media Player Architecture & Client Recommendations
+
+* **Engine / Backend**: MPD + moOde OS audio stack running on `sing`.
+* **Mobile / Remote Library Browsing**:
+  * **Android Client**: **M.A.L.P.** (free, open source on F-Droid / Google Play) connects directly to `sing:6600` for zero-lag browsing of playlists, folders, USB drives, and internet radio stations.
+  * **Spotify Connect**: Stream directly from Spotify on any phone/tablet/laptop to moOde's Spotify Connect renderer.
+  * **AirPlay**: Stream from Apple devices directly to moOde Shairport Sync.
+* **Dashboard Mini Transport Bar**:
+  * Displays Title, Artist / Stream name, Source badge (`RADIO`, `SPOTIFY`, `AIRPLAY`, `MPD`).
+  * Quick-access transport controls (`⏮`, `▶` / `⏸`, `⏭`) directly on the Home tab above the Inside / Outside volume sliders.
+  * No album art is published or rendered (low bandwidth, low latency, clean cockpit UI).
+
+### Media Bridge Service (`paeraki_media_bridge.service`)
+
+Deployed as a systemd background daemon on `sing`:
+* **Source Code**: [`logger/media_bridge.py`](file:///home/jh/paeraki/logger/media_bridge.py)
+* **Systemd Unit**: `/etc/systemd/system/paeraki_media_bridge.service`
+* **MQTT Topics**:
+  * `paeraki/media/state` (Retained): Consolidated playback status JSON published on state change and 5s heartbeat during playback.
+    ```json
+    {
+      "state": "play",
+      "source": "radio",
+      "title": "Tycho - Outer Sunset",
+      "artist": "",
+      "album": "",
+      "elapsed": 250.6,
+      "duration": 0.0,
+      "volume": 64,
+      "outputs": {
+        "inside": true,
+        "outside": true,
+        "both": true
+      },
+      "updated_at": "2026-09-22T00:21:19.899080+00:00"
+    }
+    ```
+  * `paeraki/media/command`: Receives commands: `{"command": "play"|"pause"|"play_pause"|"stop"|"next"|"prev"}`.
+* **Safety Integration**:
+  * In `dashboard/server.py`, if an active, un-silenced Cortex collision alarm (`CollisionRisk`), anchor drag (`AnchorDrag`), or critical Man Overboard (MoB) alert is detected, the dashboard automatically dispatches `{"command": "pause"}` to `paeraki/media/command` and mutes cockpit speakers to ensure audio doesn't mask marine alarms.
+
+### Hardware Health Monitoring & Dashboard Auto-Restart
+
+To guard against transient USB disconnects (e.g. cable wiggles or connector insertion):
+* **Health Check API (`GET /api/audio/health`)**:
+  * Verifies ALSA cards `inside` and `outside` are present in `/proc/asound/cards`.
+  * Verifies hardware mixer controls (`Headphone`) are accessible and unmuted.
+  * Verifies MPD daemon status and output enablement.
+* **Restart Engine (`POST /api/audio/restart` / MQTT `restart_audio`)**:
+  * Captures playback state.
+  * Restarts MPD via `sudo -n systemctl restart mpd`.
+  * Re-applies calibrated ALSA hardware volume levels to both zones (preventing default -20dB drop).
+  * Re-enables MPD zone outputs.
+  * Resumes playback automatically.
+* **Dashboard Controls**:
+  * Status Badge (`● READY` / `⚠ DEGRADED` / `● RESTARTING`).
+  * Restart button (`🔄`) in the media player transport bar with rotation animation.
+
+---
+
+## 9. Development & Deployment Workflow
 
 Development takes place locally on `hammer` and changes are synced directly to `look`:
 
@@ -803,6 +935,12 @@ REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng
    - ~~Remote alarm silencing & per-alarm acknowledgement~~
    - ~~Anchor watch monitoring card~~
    - ~~Emergency Man Overboard (MoB) trigger on Home tab~~
+1. ~~Dual-Zone Marine Audio System (`sing`)~~
+   - ~~Apple USB-C DACs (inside/outside) & persistent udev naming~~
+   - ~~MPD + moOde audio integration & close_on_pause clean stream~~
+   - ~~Dashboard Home tab volume sliders, mute toggles & mini-transport bar~~
+   - ~~Safety auto-pause on Cortex collision/anchor alarms or MoB~~
+   - ~~Hardware health monitoring & automatic systemd recovery~~
 1. Alarms
    - SMS, email
    - low battery (12v, 72v)
@@ -813,4 +951,5 @@ REMOTE_HOST=jh@192.168.1.100 ./sync.sh "sudo systemctl restart paeraki_seatalkng
 1. Touchscreen display
 1. Ultrasonic depth sensor
 1. Auto-helm
+
 

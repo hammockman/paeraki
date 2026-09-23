@@ -1,4 +1,0 @@
-- [PARKED] figure out a way to get an mqtt message to the outside world (NOT via VPN) maybe using router MQTT broker (Plan documented in mqtt_plan.md, parked pending cloud/VPS broker provisioning)
-- [DONE] rebuild RUT955 with OS 7 (7.6.21)
-- [DONE] why no internet access from sing when attached via ethernet to router? (Resolved: gateway/DNS & Spark TTL normalization)
-- [DONE] why no internet access for android wifi device? (Resolved: Spark captive portal bypass / TTL=64 on qmimux0)
