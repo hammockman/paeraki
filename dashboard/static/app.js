@@ -266,7 +266,16 @@
 
   // ---------------- Sunlight Mode (Daylight Theme) ----------------
   const urlParams = new URLSearchParams(window.location.search);
-  let isHighContrast = urlParams.get('sunlight') === '1' || (localStorage.getItem('paeraki_high_contrast') === 'true');
+  // Daylight mode is the default unless explicitly set to dark or overridden by URL
+  let isHighContrast = true;
+  if (urlParams.get('sunlight') === '0' || urlParams.get('dark') === '1' || urlParams.get('theme') === 'dark') {
+    isHighContrast = false;
+  } else if (urlParams.get('sunlight') === '1' || urlParams.get('light') === '1' || urlParams.get('theme') === 'light') {
+    isHighContrast = true;
+  } else {
+    const stored = localStorage.getItem('paeraki_high_contrast');
+    isHighContrast = (stored !== null) ? (stored === 'true') : true;
+  }
 
   function applyHighContrast(enabled) {
     document.body.classList.toggle('high-contrast', enabled);
@@ -276,6 +285,8 @@
       if (icon) icon.textContent = enabled ? '🌙' : '☀️';
       btnContrastToggle.title = enabled ? 'Switch to Dark Theme' : 'Switch to Daylight Theme';
     }
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) metaTheme.setAttribute('content', enabled ? '#f8fafc' : '#070a12');
     localStorage.setItem('paeraki_high_contrast', enabled ? 'true' : 'false');
   }
 

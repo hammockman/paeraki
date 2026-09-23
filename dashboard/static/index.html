@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Paeraki • Vessel Telemetry Monitor</title>
-  <meta name="theme-color" content="#070a12">
+  <meta name="theme-color" content="#f8fafc">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/static/manifest.json">
@@ -15,7 +15,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=20260922_02">
 </head>
-<body>
+<body class="high-contrast">
   <div class="app-container">
     <!-- Top Bar -->
     <header class="top-bar">
@@ -40,8 +40,8 @@
           <span id="auth-lock-text" class="desktop-only">Read-Only</span>
         </button>
 
-        <button class="theme-toggle-btn" id="btn-contrast-toggle" title="Toggle Daylight / Sunlight Theme" aria-label="Toggle Daylight Theme">
-          <span class="theme-icon" id="theme-icon">☀️</span>
+        <button class="theme-toggle-btn active" id="btn-contrast-toggle" title="Switch to Dark Theme" aria-label="Toggle Theme">
+          <span class="theme-icon" id="theme-icon">🌙</span>
         </button>
 
         <div class="status-indicator top-status">
